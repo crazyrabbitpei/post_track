@@ -58,16 +58,69 @@ if(mode['status']=='test'){
     fields = mode['fields'];
 
     var post_id = track_posts.shift()['id'];
-    track_tool.trackPost(setting['request_timeout'],mode,post_id,(flag,msg)=>{
-        if(flag=='err'){
-            console.log('[err] '+msg);
-        }
-        else{
-            //console.log(msg);
-            var result = track_tool.parseContent(msg);
-            console.log(JSON.stringify(result,null,3));
-        }
+    //var promise = new Promise(function(resolve,reject){
+        track_tool.trackPost(setting['request_timeout'],mode,post_id,(flag,msg)=>{
+            if(flag=='err'){
+                console.log('[trackPost err] '+msg);
+            }
+            else{
+                //console.log(JSON.stringify(msg,null,3));
+                var result = track_tool.initContent(msg);
+                track_tool.fetchNextPage(setting['request_timeout'],result.next_comments,function(flag,msg){
+                    if(flag=='err'){
+                        console.log('[fetchNextPage err] '+msg);
+                    }
+                    else{
+                        track_tool.parseComment(result,msg,function(comments){
+                            //console.log('All comments:\n'+comments);
+                        });
+                    }
+                });
+
+                track_tool.fetchNextPage(setting['request_timeout'],result.next_reactions,function(flag,msg){
+                    if(flag=='err'){
+                        console.log('[fetchNextPage err] '+msg);
+                    }
+                    else{
+                        track_tool.parseReaction(result,msg,function(reactions){
+                            console.log('All reactions:'+reactions);
+                        });
+                    }
+                });
+                //resolve(result);
+                /*
+                 * 下一頁存放位置: 
+                 *   comments next link : this.next_comments
+                 *   reactions next link : this.next_reactions
+                 *   comments' likes next link : this.comments[i]['likes_next']
+                 *
+                 * 數值還會在變動:(因為下一頁)
+                 *   reactions['LIKE'] reaction['HAHA']...
+                 *   comments[i]['likes']
+                 * */
+                //console.log(JSON.stringify(result,null,3));
+
+                //track_tool.fetchNextPage(setting['request_timeout'],result.next_comments);
+            }
+        //});
     });
+    /*
+    promise.then(function(result){
+        console.log('First page:'+JSON.stringify(result,null,3));
+        track_tool.fetchNextPage(setting['request_timeout'],result.next_comments,function(flag,msg){
+            if(flag=='err'){
+                console.log('[fetchNextPage err] '+msg);
+            }
+            else{
+                track_tool.parseComment(result,msg,function(comments){
+                    console.log('Second page:'+JSON.stringify(comments,null,3));
+                });
+            }
+        });
+    }).catch(function(error){
+        console.log('[promise err] '+error);
+    })
+    */
 }
 else{
     apply_status=0;
