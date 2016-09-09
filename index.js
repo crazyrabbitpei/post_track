@@ -1,6 +1,7 @@
 'use strict'
 var track_tool = require('./tool/track_tool.js');
-var router = require('./router.js');
+var crawler = require('./crawler.js');
+var master = require('./master.js');
 var EventEmitter = require('events');
 var fs = require('graceful-fs');
 var express = require('express');
@@ -10,21 +11,22 @@ var http = require('http');
 var server = http.createServer(app);
 
 
-var setting = JSON.parse(fs.readFileSync('./service/setting.json'));
-var serverip = setting['serverip'];
-var serverport = setting['serverport'];
-var crawler_name = setting['crawler_name'];
-var crawler_version = setting['crawler_version'];
+var crawler_setting = JSON.parse(fs.readFileSync('./service/crawler_setting.json'));
+var serverip = crawler_setting['serverip'];
+var serverport = crawler_setting['serverport'];
+var crawler_name = crawler_setting['crawler_name'];
+var crawler_version = crawler_setting['crawler_version'];
 
-var master_ip = setting['master_ip'];
-var master_port = setting['master_port'];
-var master_name = setting['master_name'];
-var master_version = setting['master_version'];
-var master_timeout_again = setting['master_timeout_again'];
-var invite_token = setting['invite_token'];
-var request_timeout = setting['request_timeout'];
+var master_ip = crawler_setting['master_ip'];
+var master_port = crawler_setting['master_port'];
+var master_name = crawler_setting['master_name'];
+var master_version = crawler_setting['master_version'];
+var master_timeout_again = crawler_setting['master_timeout_again'];
+var invite_token = crawler_setting['invite_token'];
+var request_timeout = crawler_setting['request_timeout'];
 
-var mode = setting['mode'];
+var mission_token = '';
+var mode = crawler_setting['mode'];
 var track_posts;
 
 var all_fetch=3;//有兩個資訊有下一頁問題：reactions, comments，要等到這兩個都抓完後程式才算完成
@@ -42,9 +44,15 @@ myEmitter.on('nextcomment', (link) => {
             console.log('[fetchNextPage err] '+msg);
         }
         else{
-            track_tool.parseComment(msg);
-            if(final_result.next_comments!=null){
-                myEmitter.emit('nextcomment',final_result.next_comments);
+            var i;
+            var next_result = new track_tool.parseComment(msg);
+            /*TODO:可以用map試看看*/
+            for(i=0;i<next_result.comments.length;i++){
+                final_result.comments.push(next_result.comments[i]);
+            }
+            //final_result.next_comments = next_result.next_comments;
+            if(next_result.next_comments!=null){
+                myEmitter.emit('nextcomment',next_result.next_comments);
             }
             else{
                 all_fetch--;
@@ -62,9 +70,14 @@ myEmitter.on('nextsharedpost', (link) => {
             console.log('[fetchNextPage err] '+msg);
         }
         else{
-            track_tool.parseSharedpost(msg);
-            if(final_result.next_sharedposts!=null){
-                myEmitter.emit('nextcomment',final_result.next_sharedposts);
+            var next_result = new track_tool.parseSharedpost(msg);
+            var i;
+            for(i=0;i<next_result.sharedposts.length;i++){
+                final_result.sharedposts.push(next_result.sharedposts[i]);
+            }
+            //final_result.next_sharedposts = next_result.next_sharedposts;
+            if(next_result.next_sharedposts!=null){
+                myEmitter.emit('nextcomment',next_result.next_sharedposts);
             }
             else{
                 all_fetch--;
@@ -82,12 +95,17 @@ myEmitter.on('nextreaction', (link) => {
             console.log('[fetchNextPage err] '+msg);
         }
         else{
-            track_tool.parseReaction(msg);
+            var next_result = new track_tool.parseReaction(msg);
             var i;
-            var reac_type = Object.keys(final_result.reactions);
-            //console.log('link:'+JSON.stringify(final_result.next_reactions));
-            if(final_result.next_reactions!=null){
-                myEmitter.emit('nextreaction',final_result.next_reactions);
+            var reac_type = Object.keys(next_result.reactions);
+            for(i=0;i<reac_type.length;i++){
+                if(typeof final_result.reactions[reac_type[i]]==='undefined'){
+                    final_result.reactions[reac_type[i]]=0;
+                }
+                final_result.reactions[reac_type[i]]+=next_result.reactions[reac_type[i]];
+            }
+            if(next_result.next_reactions!=null){
+                myEmitter.emit('nextreaction',next_result.next_reactions);
             }
             else{
                 all_fetch--;
@@ -124,32 +142,47 @@ myEmitter.on('one_post_done', () => {
     */
 
    console.log('--Total graph request ['+graph_request+'] --');
-   if(mode['status']=='test'){
-       track_tool.writeRec('json',current_post_id,JSON.stringify(final_result,null,3));
-   }
+   track_tool.writeRec('json',current_post_id,JSON.stringify(final_result,null,3));
    /*Reset基本記錄*/
-   all_fetch=2;
+   all_fetch=3;
    graph_request=0;
    final_result=null;
    /*開始搜集下一個*/
    var temp = trackids.shift();
-   if(typeof temp!=='undefined'){
-       current_post_id = temp['id'];
-       start(current_post_id);
+   if(mode['status']=='test'){
+       if(typeof temp!=='undefined'){
+           current_post_id = temp['id'];
+           start(current_post_id);
+       }
+       else{
+           console.log('All post id have been tracked.');
+       }
    }
-   else{
-        console.log('All post id have been tracked.');
-        /*向track master要下一批post id*/
-        if(mode['status']!='test'){
-            
-        }
-   }
+   else if(mode['status']=='test1'){
+       if(typeof temp!=='undefined'){
+           current_post_id = temp;
+           start(current_post_id);
+       }
+       else{
+           console.log('All post id have been tracked.');
+           /*向track master通知任務已完成*/
+           var mission_status='done';
+           track_tool.missionReport(master_ip,master_port,master_name,master_version,mission_token,mission_status,request_timeout,master_timeout_again,(flag,msg)=>{
+               if(flag=='ok'){
+               }
+               else{
+                   console.log('['+flag+'] '+msg);
+               }
+           });
+       }    
 
 
+
+   }
 });
 /**
  * --階段--
- * 測試模式(test)，為單機執行 不需要開啟api，先測試是否可以正確搜集到資料 並將資料合併成gaisRec，基本參數設定在loca端的setting.json file裡
+ * 測試模式(test)，為單機執行 不需要開啟api，先測試是否可以正確搜集到資料 並將資料合併成gaisRec，基本參數設定在loca端的crawler_setting.json file裡
  *  - log, error formater
  *  - request to fb
  *      - next page
@@ -181,21 +214,37 @@ if(mode['status']=='test'){
 else{
     app.use(bodyParser.json());
     app.use(bodyParser.urlencoded({ extended: true  }));
-    app.use('/'+crawler_name+'/'+crawler_version,router);
+
     //程式啟動，向tracking master報告
     server.listen(serverport,serverip,function(){
             console.log("[Server start] ["+new Date()+"] http work at "+serverip+":"+serverport);
-            //TODO
-            /*啟動後，向master報告並等待master指派任務，在master認證成功前 mission api都會鎖住*/
-            applyCrawler(master_ip,master_port,master_name,master_version,invite_token,request_timeout,master_timeout_again,(err,mission)=>{
-                track_posts = mission['track_posts'];
-                trackids = track_posts;
-                var temp = trackids.shift();
-                if(typeof temp!=='undefined'){
-                    current_post_id = temp['id'];
-                    start(current_post_id);
-                }
-            });
+            if(mode['status']=='test1'){
+                /*client同時扮演master*/
+                app.use('/'+master_name+'/'+master_version,master);
+                //TODO
+                /*啟動後，向master報告並等待master指派任務，在master認證成功前 mission api都會鎖住*/
+                /*1. 第一次申請，會給予mission tokenc和mission設定檔*/
+                /*2. 所有申請時所得到的post id都搜集完後，crawelr要主動告知master自己已完成所有任務，master收到通知後，會透過mission來傳遞下個任務*/
+                track_tool.applyCrawler(master_ip,master_port,master_name,master_version,invite_token,request_timeout,master_timeout_again,(flag,msg)=>{
+                    if(flag=='ok'){
+                        app.use('/'+crawler_name+'/'+crawler_version,crawler);
+                        mission_token = msg['data']['mission_token'];   
+                        trackids = msg['data']['mission']['track_posts'];
+                        var temp = trackids.shift();
+                        console.log('id:'+temp);
+                        if(typeof temp!=='undefined'){
+                            current_post_id = temp;
+                            start(current_post_id);
+                        }
+                    }
+                    else{
+                        console.log('['+flag+'] '+msg);
+                    }
+
+                });
+
+            }
+
     })
 }
 
@@ -206,7 +255,7 @@ function start(track_id){
             console.log('[trackPost err] '+msg);
         }
         else{
-            final_result = track_tool.initContent(msg);
+            final_result = new track_tool.initContent(msg);
 
             /*搜集下一頁的comments*/
             if(final_result.next_comments!=null){
