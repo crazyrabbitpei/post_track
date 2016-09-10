@@ -25,14 +25,14 @@ var master_timeout_again = crawler_setting['master_timeout_again'];
 var invite_token = crawler_setting['invite_token'];
 var request_timeout = crawler_setting['request_timeout'];
 
-var mission_token = '';
 var mode = crawler_setting['mode'];
-var track_posts;
+
+var mission_token = '';
+var trackids=[];
+var current_post_id='';//目前正在抓取的id
 
 var all_fetch=3;//有兩個資訊有下一頁問題：reactions, comments，要等到這兩個都抓完後程式才算完成
 var graph_request=0;//計算總共發了多少Graph api;
-var trackids=[];
-var current_post_id='';//目前正在抓取的id
 var final_result;//存放所有結果
 
 class MyEmitter extends EventEmitter {}
@@ -119,29 +119,29 @@ myEmitter.on('nextreaction', (link) => {
 myEmitter.on('one_post_done', () => {
     var i,cnt=0;
     var reac_type = Object.keys(final_result.reactions);
-    console.log('======['+current_post_id+']======')
-    console.log('--All reactions--');
+    //console.log('======['+current_post_id+']======')
+    //console.log('--All reactions--');
     for(i=0;i<reac_type.length;i++){
-        console.log('['+reac_type[i]+'] '+final_result.reactions[reac_type[i]]);
+        //console.log('['+reac_type[i]+'] '+final_result.reactions[reac_type[i]]);
         cnt+=final_result.reactions[reac_type[i]];
     }
     final_result.reactions_cnt = cnt;
-    console.log('final_result.reactions_cnt:'+final_result.reactions_cnt);
+    //console.log('final_result.reactions_cnt:'+final_result.reactions_cnt);
 
-    console.log('--All comments--');
+    //console.log('--All comments--');
     final_result.comments_cnt = final_result.comments.length;
-    console.log('final_result.comments_cnt:'+final_result.comments_cnt);
+    //console.log('final_result.comments_cnt:'+final_result.comments_cnt);
 
-    console.log('--All sharedposts--');
+    //console.log('--All sharedposts--');
     final_result.sharedposts_cnt = final_result.sharedposts.length;
-    console.log('final_result.sharedposts_cnt:'+final_result.sharedposts_cnt);
+    //console.log('final_result.sharedposts_cnt:'+final_result.sharedposts_cnt);
     /*
        for(i=0;i<final_result.comments.length;i++){
        console.log('['+i+'] '+final_result.comments[i].message);
        }
     */
 
-   console.log('--Total graph request ['+graph_request+'] --');
+   //console.log('--Total graph request ['+graph_request+'] --');
    track_tool.writeRec('json',current_post_id,JSON.stringify(final_result,null,3));
    /*Reset基本記錄*/
    all_fetch=3;
@@ -201,6 +201,7 @@ myEmitter.on('one_post_done', () => {
  * 
 **/
 if(mode['status']=='test'){
+    var track_posts;
     invite_token='test';
     track_posts = mode['track_posts'];
 
@@ -232,9 +233,13 @@ else{
                         trackids = msg['data']['mission']['track_posts'];
                         var temp = trackids.shift();
                         console.log('id:'+temp);
+
                         if(typeof temp!=='undefined'){
                             current_post_id = temp;
                             start(current_post_id);
+                        }
+                        else{
+                            console.log('Waiting for mission...');
                         }
                     }
                     else{
@@ -304,3 +309,9 @@ function start(track_id){
         }
     });
 }
+function harmony(ids,current){
+    trackids = ids;
+    current_post_id = current;
+}
+exports.start=start;
+exports.harmony=harmony;
