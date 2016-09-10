@@ -58,8 +58,8 @@ function applyCrawler(ip,port,master_name,master_version,token,timeout,retryt,fi
                     },retryt*1000);
                 }
                 else{
-                    writeLog('err','applyCrawler, '+res['statusCode']+', '+res['body']);
-                    fin('err','applyCrawler, '+res['statusCode']+', '+res['body']);
+                    writeLog('err','applyCrawler, '+res['statusCode']+', '+body['err']);
+                    fin('err','applyCrawler, '+res['statusCode']+', '+body['err']);
                 }
             }
        }
@@ -84,7 +84,9 @@ function missionReport(ip,port,master_name,master_version,token,mission_status,t
             var err_flag=0
             try{
                 var content = body;
-                console.log('=>mission report:\n'+body);
+                console.log('Waiting for mission...');
+                //console.log('=>mission report:\n'+JSON.stringify(body));
+
             }
             catch(e){
                 err_flag=1;
@@ -119,8 +121,8 @@ function missionReport(ip,port,master_name,master_version,token,mission_status,t
                     },retryt*1000);
                 }
                 else{
-                    writeLog('err','missionReport, '+res['statusCode']+', '+res['body']);
-                    fin('err','missionReport, '+res['statusCode']+', '+res['body']);
+                    writeLog('err','missionReport, '+res['statusCode']+', '+body['err']);
+                    fin('err','missionReport, '+res['statusCode']+', '+body['err']);
                 }
             }
        }
@@ -428,18 +430,28 @@ function fetchNextPage(timeout,mission,site,fin){
 function mission(){
 
 }
-
 function sendResponse(res,type,status_code,msg){
+    var result = new Object();
     if(type=='token_err'){
-        res.status(403).send(crawler_setting['err_msg']['token_err']);
+        result['data']='';
+        result['err']=crawler_setting['err_msg']['token_err'];
+        res.status(403).send(result);
     }
     else if(type=='process_err'){
-        res.status(503).send(crawler_setting['err_msg']['process_err']);
+        result['data']='';
+        result['err']=crawler_setting['err_msg']['process_err']+'. Reason:'+msg;
+        res.status(503).send(result);
+    }
+    else if(status_code>=200&&status_code<300){
+        result['data']=msg;
+        result['err']='';
+        res.status(status_code).send(result);
     }
     else{
-        res.status(status_code).send(msg);
+        result['data']='';
+        result['err']=msg;
+        res.status(status_code).send(result);
     }
-
 }
 function writeLog(type,msg){
     var now = new Date();
