@@ -1,36 +1,30 @@
 'use strict'
+var start = require('./index.js');
 var track_tool = require('./tool/track_tool.js');
 var express = require('express');
+var fs = require('fs');
 var crawler = express.Router();
+
+var crawler_setting = JSON.parse(fs.readFileSync('./service/crawler_setting.json'));
+
 crawler.post('/mission',function(req,res){
-    var err_flag=0;
-    var err_msg='';
-    try{
-        mission_token = req.body['mission_token'];
-        var mission = req.body['mission'];
-        graph_request_interval = mission['graph_request_interval'];
-        graph_timeout_again =  mission['graph_timeout_again'];
-        graph_version = mission['graph_version'];
-        site = mission['site'];
-        fields = mission['fields'];
+    var control_token = req.body['control_token'];
+    var mission = req.body['mission'];
+    if(control_token!=crawler_setting['control_token']){
+        track_tool.sendResponse(res,'token_err','','');
     }
-    catch(e){
-        err_flag=1;
-        err_msg=e;
-    }
-    finally{
-        if(err_flag==1){
-            res.send("[Error] "+err_msg);
-            track_tool.sendResponse(res,'process_err',);
+    else{
+        console.log('get from master:'+JSON.stringify(mission));
+        track_tool.sendResponse(res,'ok',200,'Roger!');
+        var temp = mission['track_posts'].shift();
+
+        if(typeof temp!=='undefined'){
+            var current_post_id = temp;
+            start.harmony(mission['track_posts'],current_post_id);
+            start.start(current_post_id);
+
         }
-        else{
-            var i;
-            var ids='';
-            for(i=0;i<post_id.length;i++){
-                trackids.push(post_id[i]);
-            }
-            track_tool.sendResponse(res,'ok',200);
-        }
+
     }
 });
 module.exports = crawler;
