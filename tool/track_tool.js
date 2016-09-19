@@ -158,6 +158,7 @@ function trackPost(timeout,mission,post_id,fin){
         else{
             if(err){
                 if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
+                    console.log('Retry [trackPost]:'+err.code);
                     setTimeout(function(){
                         trackPost(site,timeout);
                     },mission['graph_timeout_again']*1000);
@@ -169,6 +170,7 @@ function trackPost(timeout,mission,post_id,fin){
             }
             else{
                 if(res.statusCode>=500&&res.statusCode<600){
+                    console.log('Retry [trackPost]:'+res.statusCode);
                     setTimeout(function(){
                         trackPost(site,timeout);
                     },mission['graph_timeout_again']*1000);
@@ -181,24 +183,233 @@ function trackPost(timeout,mission,post_id,fin){
        }
     });
 }
-function initContent(content){
-    this.groupid = content['from']['id'];
-    this.groupname = content['from']['name'];
-    this.postid = content['id'];
-    this.created_time = dateFormat(content['created_time'],'yyyy/mm/dd HH:MM:ss');
-    this.permalink_url = content['permalink_url'];
-    this.link = content['link'];
-    this.reactions = {};
-    this.comments = [];
-    this.sharedposts = [];
-    /*若此篇文章無人分享，則不會有shares欄位*/
+function transGais(data){
+    var i,j,k;
+    var current_post_id;
+    var gaisrec='@Gais_REC\n';
+    var sub_gaisrec='';
+    var keys = Object.keys(data);
+    var sub_keys;
+    var new_name;
+    for(i=0;i<keys.length;i++){
+        /*字首大寫轉換，以及將欄位名稱轉成指定名字*/
+        new_name = mappingGaisFileds(keys[i]);
+        if(keys[i]=='id'){
+            current_post_id = data[keys[i]];
+        }
+        /*會有多種reaction種類，每個種類會分成不同子類別，放在reactions欄位之下*/
+        if(keys[i]=='reactions'){
+            sub_gaisrec='';
+            gaisrec+='@'+new_name+':\n';
+            sub_keys = Object.keys(data[keys[i]]);
+            for(j=0;j<sub_keys.length;j++){
+                //console.log('['+j+'] ['+sub_keys[j]+']'+data[keys[i]][sub_keys[j]]);
+                if(typeof data[keys[i]][sub_keys[j]]==='undefined'||data[keys[i]][sub_keys[j]]==null){
+                    data[keys[i]][sub_keys[j]]='';
+                }
+                /*將欄位名稱轉換成指定名稱*/
+                sub_gaisrec+='\t'+sub_keys[j]+':'+data[keys[i]][sub_keys[j]]+'\n';
+
+            }
+            gaisrec+=sub_gaisrec;
+        }
+        /*因為comments, sharedposts有陣列的議題(多個回應、分享)，需要將每個回應、分享轉換成子欄位*/
+        else if(keys[i]=='comments'||keys[i]=='sharedposts'){
+            gaisrec+='@'+new_name+':\n';
+            for(j=0;j<data[keys[i]].length;j++){
+                sub_gaisrec='\t'+keys[i]+'_'+j;
+                sub_keys = Object.keys(data[keys[i]][j]);
+                for(k=0;k<sub_keys.length;k++){
+                    //console.log('['+j+'] ['+sub_keys[k]+'] '+data[keys[i]][j][sub_keys[k]]);
+                    if(typeof data[keys[i]][j][sub_keys[k]]==='undefined'||data[keys[i]][j][sub_keys[k]]==null){
+                        data[keys[i]][j][sub_keys[k]]='';
+                    }
+                    else if(sub_keys[k]=='message'){
+                        data[keys[i]][j][sub_keys[k]]=data[keys[i]][j][sub_keys[k]].replace(/\n/g,' ');
+                    }
+                    sub_gaisrec+=' '+sub_keys[k]+':'+data[keys[i]][j][sub_keys[k]];
+                }
+                gaisrec+=sub_gaisrec+'\n';
+            }
+        }
+        else if(keys[i]=='message'){
+            data[keys[i]] = data[keys[i]].replace(/\n/g,' ');
+            gaisrec+='@'+new_name+':\n'
+            gaisrec+=data[keys[i]]+'\n';
+        }
+        /*reactoins, comments, sharedposts以外的欄位*/
+        else{
+            if(typeof data[keys[i]]==='undefined'||data[keys[i]]==null){
+                data[keys[i]]='';
+            }
+            gaisrec+='@'+new_name+':'+data[keys[i]]+'\n';
+        }
+    }
+    return gaisrec;
+    //writeRec('gais',current_post_id,gaisrec);
+}
+function mappingGaisFileds(field){
+    if(field=='created_time'){
+        field = 'Doctime';
+    }
+    else if(field=='permalink_url'){
+        field = 'Url';   
+    }
+    else if(field=='link'){
+        field = 'Related_link';
+    }
+    else if(field=='id'){
+        field = 'Post_id';
+    }
+    else if(field=='attachments_src'){
+        field = 'ImageLink';
+    }
+    else{
+        field = wordToUpper(1,field);
+    }
+    return field;
+}
+
+function initContent(fields,content){
+    var i,j,k;
+
+    /*若此篇文章無人分享，則不會有shares欄位，shares參數=0*/
+    /*
     if(typeof content['shares']!=='undefined'&&content['shares']!=''){
         this.shares = content['shares']['count'];
     }
     else{
         this.shares = 0;
     }
+    */
+
+
+    /*--------------------------------------------*/
+    /*將資訊依照欄位解析出後放進對應的物件和陣列裡*/
+    /*--------------------------------------------*/
+
+    /*先針對一般欄位作處理：comments, sharedposts, reactions以外的欄位都可用此段程序處理，若沒有該欄位的資訊則給''，避免出現undefined和null*/
+    var keys = Object.keys(content);
+    var sub_keys;
+    var type;
+    var temp;
+    var data;
+    this.reactions = {};
+    this.comments = [];
+    this.sharedposts = [];
+    for(i=0;i<keys.length;i++){
+        //console.log('['+i+'] '+keys[i]);   
+        if(keys[i]!='comments'&&keys[i]!='sharedposts'&&keys[i]!='reactions'&&keys[i]!='attachments'){
+            /*該欄位有其他子欄位，ex:from:{id:'',name:''}，在fields裡可以用fields欄位中是否有{}來判定該欄位是否有子欄位，ex: from{id,name}*/
+            if(fields.indexOf(keys[i]+'{')!=-1){
+                if(typeof content[keys[i]]!=='undefined'){
+                    sub_keys = Object.keys(content[keys[i]]);
+                    for(j=0;j<sub_keys.length;j++){
+                        //console.log('['+i+'-'+j+'] '+sub_keys[j]+' data:'+content[keys[i]][sub_keys[j]]);
+                        if(typeof content[keys[i]][sub_keys[j]]==='undefined'||content[keys[i]][sub_keys[j]]==null){
+                            content[keys[i]][sub_keys[j]]='';
+                        }
+                        this[keys[i]+'_'+sub_keys[j]] = content[keys[i]][sub_keys[j]];
+                    }
+                }
+
+            }
+            else{
+                if(typeof content[keys[i]]==='undefined'||content[keys[i]]==null){
+                    content[keys[i]]='';
+                }
+                else if(keys[i]=='created_time'){
+                    content[keys[i]] = dateFormat(content[keys[i]],'yyyy/mm/dd HH:MM:ss');
+                }
+                this[keys[i]] = content[keys[i]];
+            }
+        }
+        /*attachments的回傳結果比較特別，會將結果包在'data' array=> data:[{field1:'',...}]*/
+        else if(keys[i]=='attachments'){
+            if(typeof content[keys[i]]['data']!=='undefined'&&content[keys[i]]['data']!=null&&content[keys[i]]['data']!=''){
+                sub_keys = Object.keys(content[keys[i]]['data'][0]['media']['image']);
+                for(j=0;j<sub_keys.length;j++){
+                    //console.log('['+i+'-'+j+'] '+sub_keys[j]+' data:'+content[keys[i]]['data'][0]['media']['image'][sub_keys[j]]);
+                    if(typeof content[keys[i]]['data'][0]['media']['image'][sub_keys[j]]==='undefined'||content[keys[i]]['data'][0]['media']['image'][sub_keys[j]]==null){
+                        content[keys[i]]['data'][0]['media']['image'][sub_keys[j]]='';
+                    }
+                    this[keys[i]+'_'+sub_keys[j]] = content[keys[i]]['data'][0]['media']['image'][sub_keys[j]];
+                }
+            }
+        }
+        else{
+            /*解析出reactions中的各個使用者反應和數量，因為要將每個reaction的數量加總，所以會跟一般欄位分開*/
+            if(keys[i]=='reactions'){
+                if(typeof content['reactions']!=='undefined'&&content['reactions']!=''&&content['reactions']!=null){
+                    for(j=0;j<content['reactions']['data'].length;j++){
+                        type = content['reactions']['data'][j]['type'];
+                        if(typeof this.reactions[type]==='undefined'||this.reactions[type]==null){
+                            this.reactions[type]=1;
+                        }
+                        else{
+                            this.reactions[type]++;
+                        }
+                    }
+                }
+            }
+            else if(keys[i]=='comments'){
+                /*將有array的欄位資訊依序記錄：commemts, sharepedposts*/
+                /*將當前頁面的comments詳細資料塞進array*/
+                if(typeof content['comments']!=='undefined'&&content['comments']!=''&&content['comments']!=null){
+                    for(j=0;j<content['comments']['data'].length;j++){
+                        temp = new Object();
+                        data = content['comments']['data'];
+                        sub_keys = Object.keys(content['comments']['data'][j]);
+                        /*檢查有無該欄位，如果沒有則還是會保留這個欄位，並且給予''值*/
+                        for(k=0;k<sub_keys.length;k++){
+                            if(typeof data[j][sub_keys[k]]==='undefined'||data[j][sub_keys[k]]==null){
+                                data[j][sub_keys[k]]='';
+                            }
+                            if(sub_keys[k]=='created_time'){
+                                data[j][sub_keys[k]] = dateFormat(data[j][sub_keys[k]],'yyyy/mm/dd HH:MM:ss');
+                                temp[sub_keys[k]] = data[j][sub_keys[k]];
+                            }
+                            else{
+                                temp[sub_keys[k]] = data[j][sub_keys[k]];
+                            }
+                        }
+                        this.comments.push(temp);
+                        //this.comments.push({id:data[i].id,created_time:dateFormat(data[i].created_time,'yyyy/mm/dd HH:MM:ss'),like_count:data[i].like_count,message:data[i].message});
+                    }
+                }
+            }
+            else if(keys[i]=='sharedposts'){
+                /*將當前頁面的sharedposts詳細資料塞進array*/
+                if(typeof content['sharedposts']!=='undefined'&&content['sharedposts']!=''){
+                    for(j=0;j<content['sharedposts']['data'].length;j++){
+                        temp = new Object();
+                        data = content['sharedposts']['data'];
+                        sub_keys = Object.keys(content['sharedposts']['data'][j]);
+                        /*檢查有無該欄位，如果沒有則給''*/
+                        for(k=0;k<sub_keys.length;k++){
+                            if(typeof data[j][sub_keys[k]]==='undefined'||data[j][sub_keys[k]]==null){
+                                data[j][sub_keys[k]]='';
+                            }
+                            if(sub_keys[j]=='created_time'){
+                                data[j][sub_keys[k]] = dateFormat(data[j][sub_keys[k]],'yyyy/mm/dd HH:MM:ss');
+                                temp[sub_keys[k]] = data[j][sub_keys[k]];
+                            }
+                            else{
+                                temp[sub_keys[k]] = data[j][sub_keys[k]];
+                            }
+                        }
+                        this.sharedposts.push(temp);
+                        //this.sharedposts.push({id:data[i].id,created_time:dateFormat(data[i].created_time,'yyyy/mm/dd HH:MM:ss'),likes:data[i].like_count,message:data[i].message});
+                    }
+                }
+
+            }
+        }
+    }
+
+    /*----------------------------------------------------------------------------------------------------------------*/
     /*逐步確認reactions, comments, sharedposts的下一頁狀況，若無該欄位或是該欄位的paging子欄位的沒有next則代表無下一頁*/
+    /*----------------------------------------------------------------------------------------------------------------*/
     if(typeof content['reactions']==='undefined'||content['reactions']==''){
         this.next_reactions = null;
     }
@@ -212,7 +423,7 @@ function initContent(content){
     }
 
     if(typeof content['comments']==='undefined'||content['comments']==''){
-            this.next_comments = null;
+        this.next_comments = null;
     }
     else{
         if(content['comments']['paging']['next']==='undefined'){
@@ -225,7 +436,7 @@ function initContent(content){
     }
 
     if(typeof content['sharedposts']==='undefined'||content['sharedposts']==''){
-            this.next_sharedposts = null;
+        this.next_sharedposts = null;
     }
     else{
         if(content['sharedposts']['paging']['next']==='undefined'){
@@ -236,55 +447,9 @@ function initContent(content){
         }
 
     }
-
-
-    /*解析出reactions中的各個使用者反應和數量*/
-    if(typeof content['reactions']!=='undefined'&&content['reactions']!=''){
-        var type,cnt,i;
-        for(i=0;i<content['reactions']['data'].length;i++){
-            type = content['reactions']['data'][i]['type'];
-            if(typeof this.reactions[type]==='undefined'){
-                this.reactions[type]=1;
-            }
-            else{
-                this.reactions[type]++;
-            }
-        }
-    }
-    /*將當前頁面的comments詳細資料塞進array*/
-    if(typeof content['comments']!=='undefined'&&content['comments']!=''){
-        var data,likes_next='',comments_likes;
-        for(i=0;i<content['comments']['data'].length;i++){
-            data = content['comments']['data'];
-            if(typeof data[i]['like_cnt']==='undefined'){
-                comments_likes=0;
-            }
-            else{
-                comments_likes=data[i]['like_cnt'];
-            }
-            this.comments.push({id:data[i].id,created_time:dateFormat(data[i].created_time,'yyyy/mm/dd HH:MM:ss'),likes:comments_likes,message:data[i].message});
-
-        }
-    }
-    /*將當前頁面的sharedposts詳細資料塞進array*/
-    if(typeof content['sharedposts']!=='undefined'&&content['sharedposts']!=''){
-        var data,likes_next='',sharedposts_likes;
-        //TODO:將來要將所有的sharedposts的likes page都拜訪完，目前先記錄下一頁的連結和第一頁的likes數
-        for(i=0;i<content['sharedposts']['data'].length;i++){
-            data = content['sharedposts']['data'];
-            if(typeof data[i]['like_count']==='undefined'){
-                sharedposts_likes=0;
-            }
-            else{
-                sharedposts_likes=data[i]['like_count'];
-            }
-            this.sharedposts.push({id:data[i].id,created_time:dateFormat(data[i].created_time,'yyyy/mm/dd HH:MM:ss'),likes:sharedposts_likes,message:data[i].message});
-
-        }
-    }
     return this;
 }
-function parseComment(content){
+function parseComment(fields,content){
     this.comments=[];
     if(typeof content['data']==='undefined'||content['data']==''){
         this.next_comments = null;
@@ -298,25 +463,46 @@ function parseComment(content){
             this.next_comments = content['paging']['next'];
         }
 
-        var data,likes_next='',comments_likes,i;
-        //TODO:需要將所有的comments和comment的likes page都拜訪完
+        var i,j,k;
+        var data,temp;
+        var keys,sub_keys;
         for(i=0;i<content['data'].length;i++){
             data = content['data'];
-            if(typeof data[i]['message']==='undefined'){
-                continue;
+            temp = new Object();
+            keys = Object.keys(content['data'][i]);
+            /*檢查有無該欄位，如果沒有則給''*/
+            for(j=0;j<keys.length;j++){
+                //comments裡若有圖片或其他附件，目前無法使用attachment{url,...}的方式抓到，故如果回應是一張圖的話，message為空
+                if(fields.indexOf(keys[j]+'{')!=-1){
+                    if(typeof content['data'][keys[j]]!=='undefined'){
+                        sub_keys = Object.keys(content['data'][keys[j]]);
+                        for(k=0;k<sub_keys.length;k++){
+                            temp[keys[j]+'_'+sub_keys[k]] = data[i][keys[j]][sub_keys[k]];
+                        }
+                    }
+
+                }
+                else{
+                    if(typeof data[i][keys[j]]==='undefined'||data[i][keys[j]]==null){
+                        data[i][keys[j]]='';
+                    }
+                    if(keys[j]=='created_time'){
+                        data[i][keys[j]] = dateFormat(data[i][keys[j]],'yyyy/mm/dd HH:MM:ss');
+                        temp[keys[j]] = data[i][keys[j]];
+                    }
+                    else{
+                        temp[keys[j]] = data[i][keys[j]];
+                    }
+                }
+
             }
-            if(typeof data[i]['like_count']==='undefined'){
-                comments_likes=0;
-            }
-            else{
-                comments_likes=data[i]['like_count'];
-            }
-            this.comments.push({id:data[i].id,created_time:dateFormat(data[i].created_time,'yyyy/mm/dd HH:MM:ss'),likes:comments_likes,message:data[i].message});
+            this.comments.push(temp);
+            //this.comments.push({id:data[i].id,created_time:dateFormat(data[i].created_time,'yyyy/mm/dd HH:MM:ss'),likes:data[i].like_count,message:data[i].message});
         }
         return this;
     }
 }
-function parseSharedpost(content){
+function parseSharedpost(fields,content){
     this.sharedposts=[];
     if(typeof content['data']==='undefined'||content['data']==''){
         this.next_sharedposts = null;
@@ -329,25 +515,33 @@ function parseSharedpost(content){
         else{
             this.next_sharedposts = content['paging']['next'];
         }
-        var data,likes_next='',sharedposts_likes,i;
+        var i,j;
+        var data,temp;
+        var keys;
         for(i=0;i<content['data'].length;i++){
             data = content['data'];
-            if(typeof data[i]['message']==='undefined'){
-                continue;
+            temp = new Object();
+            keys = Object.keys(content['data'][i]);
+            /*檢查有無該欄位，如果沒有則給''*/
+            for(j=0;j<keys.length;j++){
+                if(typeof data[i][keys[j]]==='undefined'||data[i][keys[j]]==null){
+                    data[i][keys[j]]='';
+                }
+                if(keys[j]=='created_time'){
+                    data[i][keys[j]] = dateFormat(data[i][keys[j]],'yyyy/mm/dd HH:MM:ss');
+                    temp[keys[j]] = data[i][keys[j]];
+                }
+                else{
+                    temp[keys[j]] = data[i][keys[j]];
+                }
             }
-
-            if(typeof data[i]['like_count']==='undefined'){
-                sharedposts_likes=0;
-            }
-            else{
-                sharedposts_likes=data[i]['like_count'];
-            }
-            this.sharedposts.push({id:data[i].id,created_time:dateFormat(data[i].created_time,'yyyy/mm/dd HH:MM:ss'),likes:sharedposts_likes,message:data[i].message});
+            this.sharedposts.push(temp);
+            //this.sharedposts.push({id:data[i].id,created_time:dateFormat(data[i].created_time,'yyyy/mm/dd HH:MM:ss'),likes:data[i].like_count,message:data[i].message});
         }
         return this;
     }
 }
-function parseReaction(content){
+function parseReaction(fields,content){
     this.reactions={};
     if(typeof content['data']==='undefined'||content['data']==''){
         this.next_reactions = null;
@@ -364,7 +558,7 @@ function parseReaction(content){
         var type,cnt,i;
         for(i=0;i<content['data'].length;i++){
             type = content['data'][i]['type'];
-            if(typeof this.reactions[type]==='undefined'){
+            if(typeof this.reactions[type]==='undefined'||this.reactions[type]==null){
                 this.reactions[type]=1;
             }
             else{
@@ -402,6 +596,7 @@ function fetchNextPage(timeout,mission,site,fin){
         }
         else{
             if(err){
+                console.log('err:'+err);
                 if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
                     setTimeout(function(){
                         fetchNextPage(site,timeout);
@@ -423,7 +618,7 @@ function fetchNextPage(timeout,mission,site,fin){
                     fin('err','fetchNextPage, '+res['statusCode']+', '+res['body']);
                 }
             }
-       }
+        }
     });
 
 }
@@ -478,17 +673,94 @@ function writeRec(type,track_id,msg){
     var now = new Date();
     var date = dateFormat(now,'yyyymmdd');
     var filename=crawler_setting['rec_dir']+'/';
+    /*要將欄位名稱改過，以及字首轉大寫*/
     if(type=='gais'){
         filename += track_id+'.'+date+crawler_setting['gaisrec_filename'];
+        msg = transGais(msg);
     }
+    /*照原本格式儲存資料*/
     else{
         filename += track_id+'.'+date+crawler_setting['jsonrec_filename'];
+        msg = JSON.stringify(msg,null,3);
     }
-    fs.writeFile(filename,msg,(err)=>{
+    fs.appendFile(filename,msg,(err)=>{
         if(err){
             console.log('[writeLog] Error:'+err);
         }
     });
+}
+function temp(){
+    /*解析出reactions中的各個使用者反應和數量，因為要將每個reaction的數量加總，所以會跟一般欄位分開*/
+    if(typeof content['reactions']!=='undefined'&&content['reactions']!=''&&content['reactions']!=null){
+        var type,cnt,i;
+        for(i=0;i<content['reactions']['data'].length;i++){
+            type = content['reactions']['data'][i]['type'];
+            if(typeof this.reactions[type]==='undefined'||this.reactions[type]==null){
+                this.reactions[type]=1;
+            }
+            else{
+                this.reactions[type]++;
+            }
+        }
+    }
+
+    /*將有array的欄位資訊依序記錄：commemts, sharepedposts*/
+    /*將當前頁面的comments詳細資料塞進array*/
+    if(typeof content['comments']!=='undefined'&&content['comments']!=''&&content['comments']!=null){
+        var data;
+        for(i=0;i<content['comments']['data'].length;i++){
+            temp = new Object();
+            data = content['comments']['data'];
+            keys = Object.keys(content['comments']['data'][i]);
+            /*檢查有無該欄位，如果沒有則還是會保留這個欄位，並且給予''值*/
+            for(j=0;j<keys.length;j++){
+                if(typeof data[i][keys[j]]==='undefined'||data[i][keys[j]]==null){
+                    data[i][keys[j]]='';
+                }
+                if(keys[j]=='created_time'){
+                    data[i][keys[j]] = dateFormat(data[i][keys[j]],'yyyy/mm/dd HH:MM:ss');
+                    temp[keys[j]] = data[i][keys[j]];
+                }
+                else{
+                    temp[keys[j]] = data[i][keys[j]];
+                }
+            }
+            this.comments.push(temp);
+        }
+    }
+    /*將當前頁面的sharedposts詳細資料塞進array*/
+    if(typeof content['sharedposts']!=='undefined'&&content['sharedposts']!=''){
+        for(i=0;i<content['sharedposts']['data'].length;i++){
+            temp = new Object();
+            data = content['sharedposts']['data'];
+            keys = Object.keys(content['sharedposts']['data'][i]);
+            /*檢查有無該欄位，如果沒有則給''*/
+            for(j=0;j<keys.length;j++){
+                if(typeof data[i][keys[j]]==='undefined'||data[i][keys[j]]==null){
+                    data[i][keys[j]]='';
+                }
+                if(keys[j]=='created_time'){
+                    data[i][keys[j]] = dateFormat(data[i][keys[j]],'yyyy/mm/dd HH:MM:ss');
+                    temp[keys[j]] = data[i][keys[j]];
+                }
+                else{
+                    temp[keys[j]] = data[i][keys[j]];
+                }
+            }
+            this.sharedposts.push(temp);
+        }
+    }
+}
+function wordToUpper(index,str){
+    var cnt=1;
+    var map = Array.prototype.map;
+    return map.call(str,function(x){
+        if(cnt==index){
+            x = x.toUpperCase();
+        }
+        cnt++;
+        return x;
+    }).join('');
 }
 exports.sendResponse=sendResponse;
 exports.writeLog=writeLog;
@@ -502,3 +774,4 @@ exports.fetchNextPage=fetchNextPage;
 exports.parseComment=parseComment;
 exports.parseSharedpost=parseSharedpost;
 exports.parseReaction=parseReaction;
+exports.transGais=transGais;

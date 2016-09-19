@@ -1,4 +1,9 @@
 'use strict'
+/*
+ * TODO:
+ *  1.如果沒有同時要求reactoins, comments...有多個下一頁的欄位，要讓程式還是能執行
+ *  2.將資料回傳到data center
+ * */
 var track_tool = require('./tool/track_tool.js');
 var crawler = require('./crawler.js');
 var master = require('./master.js');
@@ -25,7 +30,7 @@ var master_timeout_again = crawler_setting['master_timeout_again'];
 var invite_token = crawler_setting['invite_token'];
 var request_timeout = crawler_setting['request_timeout'];
 
-var mode = crawler_setting['mode'];
+var mission = crawler_setting['mission'];
 
 var mission_token = '';
 var trackids=[];
@@ -38,15 +43,15 @@ var final_result;//存放所有結果
 class MyEmitter extends EventEmitter {}
 const myEmitter = new MyEmitter();
 myEmitter.on('nextcomment', (link) => {
+    console.log('nextcomment=>'+link);
     graph_request++;
-    track_tool.fetchNextPage(request_timeout,mode,link,function(flag,msg){
+    track_tool.fetchNextPage(request_timeout,mission,link,function(flag,msg){
         if(flag=='err'){
             console.log('[fetchNextPage err] '+msg);
         }
         else{
             var i;
-            var next_result = new track_tool.parseComment(msg);
-            /*TODO:可以用map試看看*/
+            var next_result = new track_tool.parseComment(mission['fields'],msg);
             for(i=0;i<next_result.comments.length;i++){
                 final_result.comments.push(next_result.comments[i]);
             }
@@ -65,12 +70,12 @@ myEmitter.on('nextcomment', (link) => {
 });
 myEmitter.on('nextsharedpost', (link) => {
     graph_request++;
-    track_tool.fetchNextPage(request_timeout,mode,link,function(flag,msg){
+    track_tool.fetchNextPage(request_timeout,mission,link,function(flag,msg){
         if(flag=='err'){
             console.log('[fetchNextPage err] '+msg);
         }
         else{
-            var next_result = new track_tool.parseSharedpost(msg);
+            var next_result = new track_tool.parseSharedpost(mission['fields'],msg);
             var i;
             for(i=0;i<next_result.sharedposts.length;i++){
                 final_result.sharedposts.push(next_result.sharedposts[i]);
@@ -90,12 +95,12 @@ myEmitter.on('nextsharedpost', (link) => {
 });
 myEmitter.on('nextreaction', (link) => {
     graph_request++;
-    track_tool.fetchNextPage(request_timeout,mode,link,function(flag,msg){
+    track_tool.fetchNextPage(request_timeout,mission,link,function(flag,msg){
         if(flag=='err'){
             console.log('[fetchNextPage err] '+msg);
         }
         else{
-            var next_result = new track_tool.parseReaction(msg);
+            var next_result = new track_tool.parseReaction(mission['fields'],msg);
             var i;
             var reac_type = Object.keys(next_result.reactions);
             for(i=0;i<reac_type.length;i++){
@@ -142,14 +147,14 @@ myEmitter.on('one_post_done', () => {
     */
 
    //console.log('--Total graph request ['+graph_request+'] --');
-   track_tool.writeRec('json',current_post_id,JSON.stringify(final_result,null,3));
+   track_tool.writeRec('gais',current_post_id,final_result);
    /*Reset基本記錄*/
    all_fetch=3;
    graph_request=0;
    final_result=null;
    /*開始搜集下一個*/
    var temp = trackids.shift();
-   if(mode['status']=='test'){
+   if(mission['status']=='test'){
        if(typeof temp!=='undefined'){
            current_post_id = temp['id'];
            start(current_post_id);
@@ -158,7 +163,7 @@ myEmitter.on('one_post_done', () => {
            console.log('All post id have been tracked.');
        }
    }
-   else if(mode['status']=='test1'){
+   else if(mission['status']=='test1'){
        if(typeof temp!=='undefined'){
            current_post_id = temp;
            start(current_post_id);
@@ -175,9 +180,9 @@ myEmitter.on('one_post_done', () => {
                }
            });
        }    
-
-
-
+   }
+   else{
+       console.log('Other mission:\n'+JSON.stringify(mission,null,3));
    }
 });
 /**
@@ -200,10 +205,10 @@ myEmitter.on('one_post_done', () => {
  *      - 已追蹤數量and正在追蹤的進度，ex: 3/10
  * 
 **/
-if(mode['status']=='test'){
+if(mission['status']=='test'){
     var track_posts;
     invite_token='test';
-    track_posts = mode['track_posts'];
+    track_posts = mission['track_posts'];
 
     trackids = track_posts;
     var temp = trackids.shift();
@@ -219,7 +224,7 @@ else{
     //程式啟動，向tracking master報告
     server.listen(serverport,serverip,function(){
             console.log("[Server start] ["+new Date()+"] http work at "+serverip+":"+serverport);
-            if(mode['status']=='test1'){
+            if(mission['status']=='test1'){
                 /*client同時扮演master*/
                 app.use('/'+master_name+'/'+master_version,master);
                 //TODO
@@ -231,6 +236,9 @@ else{
                         app.use('/'+crawler_name+'/'+crawler_version,crawler);
                         mission_token = msg['data']['mission_token'];   
                         trackids = msg['data']['mission']['track_posts'];
+                        mission = msg['data']['mission'];
+                        mission['status']='test1';
+
                         var temp = trackids.shift();
                         console.log('id:'+temp);
 
@@ -255,16 +263,17 @@ else{
 
 function start(track_id){
     graph_request++;
-    track_tool.trackPost(request_timeout,mode,track_id,(flag,msg)=>{
+    track_tool.trackPost(request_timeout,mission,track_id,(flag,msg)=>{
         if(flag=='err'){
             console.log('[trackPost err] '+msg);
         }
         else{
-            final_result = new track_tool.initContent(msg);
+            final_result = new track_tool.initContent(mission['fields'],msg);
 
             /*搜集下一頁的comments*/
             if(final_result.next_comments!=null){
-                myEmitter.emit('nextcomment',final_result.next_comments);                   
+                myEmitter.emit('nextcomment',final_result.next_comments);
+                final_result.next_comments=null;
             }
             else{
                 all_fetch--;
@@ -275,6 +284,7 @@ function start(track_id){
             /*搜集下一頁的sharedposts*/
             if(final_result.next_sharedposts!=null){
                 myEmitter.emit('nextsharedpost',final_result.next_sharedposts);                   
+                final_result.next_sharedposts=null;
             }
             else{
                 all_fetch--;
@@ -288,7 +298,8 @@ function start(track_id){
 
             //console.log('link:'+JSON.stringify(final_result.next_reactions));
             if(final_result.next_reactions!=null){
-                myEmitter.emit('nextreaction',final_result.next_reactions);     
+                myEmitter.emit('nextreaction',final_result.next_reactions); 
+                final_result.next_reactions=null;
             }
             else{
                 all_fetch--;
@@ -296,22 +307,15 @@ function start(track_id){
                     myEmitter.emit('one_post_done');
                 }
             }
-            /*
-             * 下一頁存放位置: 
-             *   comments next link : this.next_comments
-             *   reactions next link : this.next_reactions
-             *   comments' likes next link : this.comments[i]['likes_next']
-             *
-             * 數值還會在變動:(因為下一頁)
-             *   reactions['LIKE'] reaction['HAHA']...
-             *   comments[i]['likes']
-             * */
         }
     });
 }
-function harmony(ids,current){
+function harmony(job,ids,current){
+    console.log('[harmony]');
     trackids = ids;
     current_post_id = current;
+    mission = job;
+    mission['status']='test1';
 }
 exports.start=start;
 exports.harmony=harmony;
