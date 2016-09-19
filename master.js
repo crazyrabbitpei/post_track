@@ -1,4 +1,13 @@
 'use strict'
+/*
+ * TODO: 
+ *  1.查詢crawler狀態
+ *  2.查詢追蹤pool
+ *  3.管理追蹤清單
+ *  4.管理設定檔
+ *  5.設定檔：是否抓原文？
+ *
+* */
 var request = require('request');
 var fs = require('fs');
 var LineByLineReader = require('line-by-line');
@@ -86,6 +95,9 @@ master.route('/mission_status')
         manageCrawler(mission_token,req,'done');
         var result='get token:'+mission_token+' get status:'+mission_status;
         sendResponse(res,'ok',200,result);
+
+        /*TODO:繼續給予下一個任務之前，必須先觀察此crawler目前行程是否已滿，若已滿 則不給予新任務，以及要看目前是否有可以發出的任務*/
+        /*TODO:應該記錄每支爬蟲的ip, port ，control應改為crawler access token，其餘api參數也應由crawler給予 而非master*/
         var ip='nubot3.ddns.net';
         var port='3790';
         var crawler_name='trackingCrawler';

@@ -20,7 +20,7 @@ crawler.post('/mission',function(req,res){
 
         if(typeof temp!=='undefined'){
             var current_post_id = temp;
-            start.harmony(mission['track_posts'],current_post_id);
+            start.harmony(mission,mission['track_posts'],current_post_id);
             start.start(current_post_id);
 
         }
