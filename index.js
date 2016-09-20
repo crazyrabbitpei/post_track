@@ -38,12 +38,13 @@ var current_post_id='';//目前正在抓取的id
 
 var all_fetch=3;//有兩個資訊有下一頁問題：reactions, comments，要等到這兩個都抓完後程式才算完成
 var graph_request=0;//計算總共發了多少Graph api;
+var processing=0;//如果目前有任務還在進行就是1，否則為0
 var final_result;//存放所有結果
 
 class MyEmitter extends EventEmitter {}
 const myEmitter = new MyEmitter();
 myEmitter.on('nextcomment', (link) => {
-    console.log('nextcomment=>'+link);
+    //console.log('nextcomment=>'+link);
     graph_request++;
     track_tool.fetchNextPage(request_timeout,mission,link,function(flag,msg){
         if(flag=='err'){
@@ -124,7 +125,7 @@ myEmitter.on('nextreaction', (link) => {
 myEmitter.on('one_post_done', () => {
     var i,cnt=0;
     var reac_type = Object.keys(final_result.reactions);
-    //console.log('======['+current_post_id+']======')
+    console.log('==ok==ok==['+current_post_id+']==ok==ok==')
     //console.log('--All reactions--');
     for(i=0;i<reac_type.length;i++){
         //console.log('['+reac_type[i]+'] '+final_result.reactions[reac_type[i]]);
@@ -152,6 +153,7 @@ myEmitter.on('one_post_done', () => {
    all_fetch=3;
    graph_request=0;
    final_result=null;
+   processing=0;//該貼文追蹤完畢，可以繼續接收下個任務
    /*開始搜集下一個*/
    var temp = trackids.shift();
    if(mission['status']=='test'){
@@ -262,6 +264,15 @@ else{
 }
 
 function start(track_id){
+    if(processing==1){//還有任務沒完成，不會進下個任務
+        console.log('Push back:'+track_id);
+        trackids.push(track_id);//將任務再塞回去
+        return;
+    }
+
+    processing=1;//開關打開，在完成當前任務前都不會接受任何新任務，亦即，同時只會追蹤一個貼文
+    console.log('=>==>==>=['+track_id+']=>==>==>=')
+    current_post_id = track_id;
     graph_request++;
     track_tool.trackPost(request_timeout,mission,track_id,(flag,msg)=>{
         if(flag=='err'){
@@ -310,10 +321,10 @@ function start(track_id){
         }
     });
 }
-function harmony(job,ids,current){
-    console.log('[harmony]');
-    trackids = ids;
-    current_post_id = current;
+function harmony(job,ids){
+    console.log('[harmony] new ids:'+ids);
+    trackids.push(ids);
+    console.log('Total misison:'+trackids);
     mission = job;
     mission['status']='test1';
 }

@@ -14,13 +14,16 @@ crawler.post('/mission',function(req,res){
         track_tool.sendResponse(res,'token_err','','');
     }
     else{
-        console.log('get from master:'+JSON.stringify(mission));
+        console.log('Get from master:'+JSON.stringify(mission));
         track_tool.sendResponse(res,'ok',200,'Roger!');
         var temp = mission['track_posts'].shift();
 
         if(typeof temp!=='undefined'){
+            var i;
             var current_post_id = temp;
-            start.harmony(mission,mission['track_posts'],current_post_id);
+            for(i=0;i<mission['track_posts'].length;i++){
+                start.harmony(mission,mission['track_posts'][i]);
+            }
             start.start(current_post_id);
 
         }

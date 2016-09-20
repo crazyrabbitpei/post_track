@@ -130,7 +130,7 @@ function missionReport(ip,port,master_name,master_version,token,mission_status,t
 }
 function trackPost(timeout,mission,post_id,fin){
     var site = mission['site']+mission['graph_version']+'/'+post_id+'?fields='+mission['fields']+'&access_token='+mission['graph_token']+'&limit='+mission['limit'];
-    console.log('\nRequest:'+site);
+    //console.log('\nRequest:'+site);
     request({
         url:site,
         timeout:timeout*1000
@@ -190,10 +190,10 @@ function transGais(data){
     var sub_gaisrec='';
     var keys = Object.keys(data);
     var sub_keys;
-    var new_name;
+    var new_name,new_sub_name;
     for(i=0;i<keys.length;i++){
         /*字首大寫轉換，以及將欄位名稱轉成指定名字*/
-        new_name = mappingGaisFileds(keys[i]);
+        new_name = mappingGaisFileds(keys[i],keys[i]);
         if(keys[i]=='id'){
             current_post_id = data[keys[i]];
         }
@@ -217,7 +217,7 @@ function transGais(data){
         else if(keys[i]=='comments'||keys[i]=='sharedposts'){
             gaisrec+='@'+new_name+':\n';
             for(j=0;j<data[keys[i]].length;j++){
-                sub_gaisrec='\t'+keys[i]+'_'+j;
+                sub_gaisrec='\t'+mappingGaisFileds(keys[i],'')+'_'+j;
                 sub_keys = Object.keys(data[keys[i]][j]);
                 for(k=0;k<sub_keys.length;k++){
                     //console.log('['+j+'] ['+sub_keys[k]+'] '+data[keys[i]][j][sub_keys[k]]);
@@ -227,7 +227,8 @@ function transGais(data){
                     else if(sub_keys[k]=='message'){
                         data[keys[i]][j][sub_keys[k]]=data[keys[i]][j][sub_keys[k]].replace(/\n/g,' ');
                     }
-                    sub_gaisrec+=' '+sub_keys[k]+':'+data[keys[i]][j][sub_keys[k]];
+                    new_sub_name = mappingGaisFileds(sub_keys[k],keys[i]);
+                    sub_gaisrec+=' '+new_sub_name+':'+data[keys[i]][j][sub_keys[k]];
                 }
                 gaisrec+=sub_gaisrec+'\n';
             }
@@ -237,18 +238,20 @@ function transGais(data){
             gaisrec+='@'+new_name+':\n'
             gaisrec+=data[keys[i]]+'\n';
         }
+
         /*reactoins, comments, sharedposts以外的欄位*/
         else{
             if(typeof data[keys[i]]==='undefined'||data[keys[i]]==null){
                 data[keys[i]]='';
             }
             gaisrec+='@'+new_name+':'+data[keys[i]]+'\n';
+
         }
     }
     return gaisrec;
     //writeRec('gais',current_post_id,gaisrec);
 }
-function mappingGaisFileds(field){
+function mappingGaisFileds(field,type){
     if(field=='created_time'){
         field = 'Doctime';
     }
@@ -259,10 +262,24 @@ function mappingGaisFileds(field){
         field = 'Related_link';
     }
     else if(field=='id'){
-        field = 'Post_id';
+        if(type=='comments'){
+            field='Comment_id';
+        }
+        else if(type=='sharedposts'){
+            field='Sharepost_id';
+        }
+        else{
+            field='Post_id';
+        }
+    }
+    else if(field=='from'){
+        field='From_id';
     }
     else if(field=='attachments_src'){
         field = 'ImageLink';
+    }
+    else if(field=='message'){
+        field='Body';
     }
     else{
         field = wordToUpper(1,field);
@@ -369,6 +386,9 @@ function initContent(fields,content){
                                 data[j][sub_keys[k]] = dateFormat(data[j][sub_keys[k]],'yyyy/mm/dd HH:MM:ss');
                                 temp[sub_keys[k]] = data[j][sub_keys[k]];
                             }
+                            else if(sub_keys[k]=='from'){
+                                temp[sub_keys[k]] = data[j][sub_keys[k]]['id'];
+                            }
                             else{
                                 temp[sub_keys[k]] = data[j][sub_keys[k]];
                             }
@@ -390,9 +410,12 @@ function initContent(fields,content){
                             if(typeof data[j][sub_keys[k]]==='undefined'||data[j][sub_keys[k]]==null){
                                 data[j][sub_keys[k]]='';
                             }
-                            if(sub_keys[j]=='created_time'){
+                            if(sub_keys[k]=='created_time'){
                                 data[j][sub_keys[k]] = dateFormat(data[j][sub_keys[k]],'yyyy/mm/dd HH:MM:ss');
                                 temp[sub_keys[k]] = data[j][sub_keys[k]];
+                            }
+                            else if(sub_keys[k]=='from'){
+                                temp[sub_keys[k]] = data[j][sub_keys[k]]['id'];
                             }
                             else{
                                 temp[sub_keys[k]] = data[j][sub_keys[k]];
@@ -473,6 +496,7 @@ function parseComment(fields,content){
             /*檢查有無該欄位，如果沒有則給''*/
             for(j=0;j<keys.length;j++){
                 //comments裡若有圖片或其他附件，目前無法使用attachment{url,...}的方式抓到，故如果回應是一張圖的話，message為空
+                /*
                 if(fields.indexOf(keys[j]+'{')!=-1){
                     if(typeof content['data'][keys[j]]!=='undefined'){
                         sub_keys = Object.keys(content['data'][keys[j]]);
@@ -482,7 +506,8 @@ function parseComment(fields,content){
                     }
 
                 }
-                else{
+                */
+                //else{
                     if(typeof data[i][keys[j]]==='undefined'||data[i][keys[j]]==null){
                         data[i][keys[j]]='';
                     }
@@ -490,10 +515,13 @@ function parseComment(fields,content){
                         data[i][keys[j]] = dateFormat(data[i][keys[j]],'yyyy/mm/dd HH:MM:ss');
                         temp[keys[j]] = data[i][keys[j]];
                     }
+                    else if(keys[j]=='from'){
+                        temp[keys[j]] = data[i][keys[j]]['id'];
+                    }
                     else{
                         temp[keys[j]] = data[i][keys[j]];
                     }
-                }
+                //}
 
             }
             this.comments.push(temp);
@@ -530,6 +558,9 @@ function parseSharedpost(fields,content){
                 if(keys[j]=='created_time'){
                     data[i][keys[j]] = dateFormat(data[i][keys[j]],'yyyy/mm/dd HH:MM:ss');
                     temp[keys[j]] = data[i][keys[j]];
+                }
+                else if(keys[j]=='from'){
+                    temp[keys[j]] = data[i][keys[j]]['id'];
                 }
                 else{
                     temp[keys[j]] = data[i][keys[j]];
