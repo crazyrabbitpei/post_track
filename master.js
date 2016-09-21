@@ -33,6 +33,18 @@ var master_setting = JSON.parse(fs.readFileSync('./service/master_setting.json')
 var mission = JSON.parse(fs.readFileSync('./service/mission.json'));
 loadGraphToken();
 loadIds();
+/*給予demo用的通行証*/
+crawler_info.set(master_setting['demo_token'],new Object());
+
+/*所有的request都必須被檢查其access token*/
+master.use(function(req,res,next){
+    var access_token = req.body['access_token'];
+    if((!crawler_info.has(access_token)&&req.path!='/')||(access_token!=master_setting['invite_token'])&&req.path=='/'){
+        sendResponse(res,'token_err','','');
+        return;
+    }
+    next();
+});
 /*
  * POST
  * crawler向master申請token，並拿取任務內容
@@ -40,49 +52,43 @@ loadIds();
  *  -回傳任務和access_token
  */
 master.post('/',function(req,res){
-    var invite_token = req.body['invite_token'];
-    if(invite_token!=master_setting['invite_token']){
-        sendResponse(res,'token_err','','');
-    }
-    else{
-        /* 申請物件：
-        *  1.權限token
-        *  2.基本mission，包含graph_request_interval, graph_timeout_again, site, graph_version, fields, limit
-        *  3.額外的mission，在基本設定檔裡(missoin.json)不會出現，為動態配置，包含graph_token, track_posts(欲追蹤的post ids)
-        *
-        * */
+    /* 申請物件：
+     *  1.權限token
+     *  2.基本mission，包含graph_request_interval, graph_timeout_again, site, graph_version, fields, limit
+     *  3.額外的mission，在基本設定檔裡(missoin.json)不會出現，為動態配置，包含graph_token, track_posts(欲追蹤的post ids)
+     *
+     * */
         var result = new Object();
         var min=-1;
         var token;
-        
-        var mission_token = md5(req.id+new Date()+Math.floor(Math.random() * (master_setting.random['max'] - master_setting.random['min'] + 1)) + master_setting.random['min']);
-        while(crawler_info.has(mission_token)){
-            mission_token = md5(req.id+new Date()+Math.floor(Math.random() * (master_setting.random['max'] - master_setting.random['min'] + 1)) + master_setting.random['min']);
-        }
-        manageCrawler(mission_token,req,'init');
 
-        result['mission_token'] = mission_token;
-        mission['graph_token']=getGraphToken();
-        mission['track_posts'] = [];
-        var id = track_ids.shift();
-        var i=0;
-        while(typeof id!=='undefined'){
-            mission['track_posts'].push(id);
-            i++;
-            if(i<master_setting['ids_num']){
-                id = track_ids.shift();
-            }
-            else{
-                break;
-            }
-        }
-        /*若有馬上指派任務，則將crawler_info的狀態改為ing，代表目前正在搜集資料，若沒任務可指派 則維持init*/
-        if(i!=0){
-            manageCrawler(mission_token,req,'ing');
-        }
-        result['mission'] = mission;
-        sendResponse(res,'ok',200,result);
+    var access_token = md5(req.id+new Date()+Math.floor(Math.random() * (master_setting.random['max'] - master_setting.random['min'] + 1)) + master_setting.random['min']);
+    while(crawler_info.has(access_token)){
+        access_token = md5(req.id+new Date()+Math.floor(Math.random() * (master_setting.random['max'] - master_setting.random['min'] + 1)) + master_setting.random['min']);
     }
+    manageCrawler(access_token,req,'init');
+
+    result['access_token'] = access_token;
+    mission['graph_token']=getGraphToken();
+    mission['track_posts'] = [];
+    var id = track_ids.shift();
+    var i=0;
+    while(typeof id!=='undefined'){
+        mission['track_posts'].push(id);
+        i++;
+        if(i<master_setting['ids_num']){
+            id = track_ids.shift();
+        }
+        else{
+            break;
+        }
+    }
+    /*若有馬上指派任務，則將crawler_info的狀態改為ing，代表目前正在搜集資料，若沒任務可指派 則維持init*/
+    if(i!=0){
+        manageCrawler(access_token,req,'ing');
+    }
+    result['mission'] = mission;
+    sendResponse(res,'ok',200,result);
 });
 /*
  * POST
@@ -96,34 +102,28 @@ master.post('/',function(req,res){
  * */
 master.route('/mission_status')
 .post(function(req,res){
-    var mission_token = req.body['mission_token'];
+    var access_token = req.body['access_token'];
     var mission_status = req.body['mission_status'];
-    if(!crawler_info.has(mission_token)){
-        sendResponse(res,'token_err','','');
-    }
-    else{
-        /*將狀態給為done，代表此crawler為閒置*/
-        manageCrawler(mission_token,req,'done');
-        var result='get token:'+mission_token+' get status:'+mission_status;
-        sendResponse(res,'ok',200,result);
+    /*將狀態給為done，代表此crawler為閒置*/
+    manageCrawler(access_token,req,'done');
+    var result='get token:'+access_token+' get status:'+mission_status;
+    sendResponse(res,'ok',200,result);
 
-        /*TODO:繼續給予下一個任務之前，必須先觀察此crawler目前行程是否已滿，若已滿 則不給予新任務，以及要看目前是否有可以發出的任務*/
-        /*TODO:應該記錄每支爬蟲的ip, port ，control應改為crawler access token，其餘api參數也應由crawler給予 而非master*/
-        var ip='nubot3.ddns.net';
-        var port='3790';
-        var crawler_name='trackingCrawler';
-        var crawler_version='v1.0';
-        var control_token='rabbit';
-        sendMission(ip,port,crawler_name,crawler_version,control_token,mission_token,(flag,msg)=>{
-            if(flag=='ok'){
-                console.log('Master get res from crawler:\n'+msg['data']);
-            }
-            else{
-                console.log('Master ['+flag+'] '+msg);
-            }
-        });
-
-    }
+    /*TODO:繼續給予下一個任務之前，必須先觀察此crawler目前行程是否已滿，若已滿 則不給予新任務，以及要看目前是否有可以發出的任務*/
+    /*TODO:應該記錄每支爬蟲的ip, port ，control應改為crawler access token，其餘api參數也應由crawler給予 而非master*/
+    var ip='nubot3.ddns.net';
+    var port='3790';
+    var crawler_name='trackingCrawler';
+    var crawler_version='v1.0';
+    var control_token='rabbit';
+    sendMission(ip,port,crawler_name,crawler_version,control_token,access_token,(flag,msg)=>{
+        if(flag=='ok'){
+            console.log('Master get res from crawler:\n'+msg['data']);
+        }
+        else{
+            console.log('Master ['+flag+'] '+msg);
+        }
+    });
 })
 .get(function(req,res){
     var crawlers=[];
@@ -153,32 +153,33 @@ master.route('/mission_status')
 
 var trackList = new HashMap();
 var trackingPool = new Object();
-master.route('/manageTracking/:post_id')
+master.route('/manageTracking')
 .post(function(req,res){
-    var mission_token = req.body['mission_token'];
-    var post_id = req.params['post_id'];
-    var created_time = req.body['created_time'];
-    var track_time = req.body['track_time'];
-    if(!crawler_info.has(mission_token)){
-        sendResponse(res,'token_err','','');
-    }
-    /*該post已存在於tracking list*/
-    else if(trackList.has(post_id)){
+    var track_pages = req.body['data']['track_pages'];
+    var result=new Object();
 
-    }
-    else{
-        /*附上新增時間*/
-        var now = new Date();
-        trackList.set(post_id,now);
-        /**/
-        var track = new trackJob(post_id,created_time,track_time);
-        if(typeof trackingPool[track['pool']]==='undefined'){
-            trackingPool[track['pool']]=[];
+    track_pages.map(function(post){
+        /*該post已存在於tracking list*/
+        if(trackList.has(post.id)){
+            sendResponse(res,'ok',200,'Post id ['+post.id+'] exist.');
         }
-        trackingPool[track['pool']].push(track);
-
-        sendResponse(res,'ok',200,result);
-    }
+        else{
+            /*附上新增時間*/
+            var now = new Date();
+            trackList.set(post.id,now);
+            var track = new trackJob(post.id,post.created_time,post.track_time);
+            if(typeof trackingPool[track['pool']]==='undefined'){
+                trackingPool[track['pool']]=[];
+            }
+            trackingPool[track['pool']].push(track);
+        }
+    });
+    /*
+    result['access_token']=access_token;
+    result['track_pages']=trackingPool;
+    */
+    result='Sucess upload track jobs!';
+    sendResponse(res,'ok',200,result);
 })
 .put(function(req,res){
 
@@ -187,28 +188,91 @@ master.route('/manageTracking/:post_id')
     
 })
 .get(function(req,res){
+    var date = req.query.date;
+    var before = req.query.before;
+    var after = req.query.after;
+    console.log(before+', '+after);
+    var result = listTrackByDate(date);
+    /*沒有指定任何區間，則預設都不顯示*/
+    if((typeof before!=='undefined'&&new Date(before).isValid)||(typeof after!=='undefined'&&new Date(after).isValid)){
+        result.push(listTrackByInterval(before,after));
+    }
+    else{
+        console.log(new Date(before)+', '+new Date(after));
+        console.log(new Date(before).isValid+' ,'+new Date(after).isValid);
+    }
+    if(typeof result=='undefined'){
+        result='Can\' find any tarck job in pool '+date; 
+        sendResponse(res,'fail',200,result);
+    }
+    else{
+        sendResponse(res,'ok',200,result);
+    }
 
 });
 
 module.exports = master;
+function listTrackByDate(date){
+    return trackingPool[date];
+}
+function listTrackByInterval(before,after){
+    /*如果未指定要顯示哪個日期前的資料，則預設*/
+    if(typeof before=='undefined'){
+        before = new Date(after).setDate(new Date(after).getDate()+31);
+        console.log('before:'+before);
+    }
+    if(typeof after=='undefined'){
+        after= new Date(after).setDate(new Date(after).getDate()+31);
+        console.log('after:'+after);
+    }
 
+    return {id:'0000'};
+}
+function searchPostById(id){
+    
+}
+/*將從crawler拿到的資訊包起來，並算出此貼文應該在什麼時候被追蹤(pool)*/
 function trackJob(id,date,pool){
     var now;
     if(typeof date==='undefined'){
         now = new Date();
-        date = dateFormat(now,'yyyy/mm/dd HH:MM:SS');
     }
-    if(typeof pool==='undefined'){
-        now=date;
+    else{
+        now = new Date(date);
+    }
+    date = dateFormat(date,'yyyy/mm/dd HH:MM:ss');
+
+    if(typeof pool==='undefined'||new Date(pool).isValid){
         var after = now.getDate()+master_setting['track_interval'];
         now.setDate(after);
-        var mm = now.getMonth();
+        var mm = now.getMonth()+1;
         var dd = now.getDate();
         pool = mm+'/'+dd;
     }
+    else{
+        var is_expire;
+        pool=new Date(pool);
+        /*檢查crawler是否給了一個已經過期的追蹤區間*/
+        if(pool.getTime()<new Date().getTime()){
+            is_expire=true;
+        }
+        else{
+            var mm = pool.getMonth()+1;
+            var dd = pool.getDate();
+            pool = mm+'/'+dd;
+        }
+    }
+
     this.id=id;
-    this.date=date
-    this.pool=pool;
+    this.date=date;
+    /*如果欲追蹤的日期是過去的日期，則丟進past裡等待*/
+    if(is_expire){
+        this.pool='past';
+    }
+    else{
+        this.pool=pool;
+    }
+
 }
 /*crawler資訊都存在crawler_info map裡，key為token value為物件，包著所有crawler相關資訊*/
 function manageCrawler(token,crawler,type){

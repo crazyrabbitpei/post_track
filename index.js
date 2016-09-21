@@ -8,6 +8,7 @@ var track_tool = require('./tool/track_tool.js');
 var crawler = require('./crawler.js');
 var master = require('./master.js');
 var EventEmitter = require('events');
+var querystring = require('querystring');
 var fs = require('graceful-fs');
 var express = require('express');
 var bodyParser = require('body-parser');
@@ -32,7 +33,7 @@ var request_timeout = crawler_setting['request_timeout'];
 
 var mission = crawler_setting['mission'];
 
-var mission_token = '';
+var access_token = '';
 var trackids=[];
 var current_post_id='';//目前正在抓取的id
 
@@ -174,7 +175,7 @@ myEmitter.on('one_post_done', () => {
            console.log('All post id have been tracked.');
            /*向track master通知任務已完成*/
            var mission_status='done';
-           track_tool.missionReport(master_ip,master_port,master_name,master_version,mission_token,mission_status,request_timeout,master_timeout_again,(flag,msg)=>{
+           track_tool.missionReport(master_ip,master_port,master_name,master_version,access_token,mission_status,request_timeout,master_timeout_again,(flag,msg)=>{
                if(flag=='ok'){
                }
                else{
@@ -227,16 +228,17 @@ else{
     server.listen(serverport,serverip,function(){
             console.log("[Server start] ["+new Date()+"] http work at "+serverip+":"+serverport);
             if(mission['status']=='test1'){
-                /*client同時扮演master*/
+                /*client同時扮演master，沒有這行的話，就是一個完整的post track crawler*/
                 app.use('/'+master_name+'/'+master_version,master);
-                //TODO
-                /*啟動後，向master報告並等待master指派任務，在master認證成功前 mission api都會鎖住*/
-                /*1. 第一次申請，會給予mission tokenc和mission設定檔*/
-                /*2. 所有申請時所得到的post id都搜集完後，crawelr要主動告知master自己已完成所有任務，master收到通知後，會透過mission來傳遞下個任務*/
+                /* TODO
+                *  1. 要將搜集到的訊息上傳至資料中心存放
+                *  2. 當程式停止時，主動向master發送停止訊息
+                *  3. 將從master那得來的設定檔和任務儲存到temp_pool裡，若有重新認證的情況時再將新的覆蓋回去
+                */
                 track_tool.applyCrawler(master_ip,master_port,master_name,master_version,invite_token,request_timeout,master_timeout_again,(flag,msg)=>{
                     if(flag=='ok'){
                         app.use('/'+crawler_name+'/'+crawler_version,crawler);
-                        mission_token = msg['data']['mission_token'];   
+                        access_token = msg['data']['access_token'];   
                         trackids = msg['data']['mission']['track_posts'];
                         mission = msg['data']['mission'];
                         mission['status']='test1';
@@ -258,6 +260,47 @@ else{
 
                 });
 
+            }
+            /*此模式為了要測試master的manageTracking API，需要準備一個偽data crawler來抓取fb資料，並呼叫manageTracking API來將抓取到的post id, created_time塞給track master做儲存*/
+            else if(mission['status']=='test2'){
+                access_token=mission['access_token'];
+                app.use('/'+master_name+'/'+master_version,master);
+
+                /*準備測試資料*/
+                var data ={
+                    track_pages:[]
+                }
+                var i,rec_num=5;
+                var id_max=100000;
+                var id_min=200000;
+                var now,plus,after;;
+                var date_max=0;
+                var date_min=-14;
+                var track_after;
+                var track_max=30;
+                var track_min=-30;
+                var post=new Object();
+                for(i=0;i<rec_num;i++){
+                    now = new Date();
+                    plus = (Math.floor(Math.random()*(date_max-date_min+1)+date_min));
+                    after = now.getDate()+plus;
+                    track_after = Math.floor(Math.random()*(track_max-track_min+1)+track_min);
+                    post['id']=Math.floor(Math.random()*(id_max-id_min+1)+id_min);
+                    post['created_time']=new Date(now.setDate(after));
+                    post['track_time']=new Date(now.setDate(now.getDate()+track_after));
+                    data['track_pages'].push(post);
+                    post=new Object();
+                }
+                console.log(JSON.stringify(data));
+
+                track_tool.uploadTrackPost(master_ip,master_port,master_name,master_version,access_token,data,request_timeout,master_timeout_again,(flag,msg)=>{
+                    if(flag=='ok'){
+                        console.log(JSON.stringify(msg,null,3));
+                    }
+                    else{
+                        console.log('['+flag+'] '+msg);
+                    }
+                });
             }
 
     })
