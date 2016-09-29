@@ -7,7 +7,7 @@ var querystring = require('querystring');
 var reactions;
 var crawler_setting = JSON.parse(fs.readFileSync('./service/crawler_setting.json'));
 
-function applyCrawler(ip,port,master_name,master_version,token,timeout,retryt,fin){
+function applyCrawler(crawler_port,ip,port,master_name,master_version,token,timeout,retryt,fin){
     request({
         method:'POST',
         json:true,
@@ -15,7 +15,8 @@ function applyCrawler(ip,port,master_name,master_version,token,timeout,retryt,fi
             "content-type":"application/json"
         },
         body:{
-            access_token:token
+            access_token:token,
+            port:crawler_port
         },
         url:'http://'+ip+':'+port+'/'+master_name+'/'+master_version,
         timeout:timeout*1000
@@ -163,7 +164,7 @@ function listTrack(ip,port,master_name,master_version,token,date,timeout,retryt,
             if(err){
                 if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
                     setTimeout(function(){
-                        uploadTrackPost(ip,port,master_name,master_version,token,data,timeout,retryt,fin);
+                        uploadTrackPost(ip,port,master_name,master_version,token,date,timeout,retryt,fin);
                     },retryt*1000);
                 }
                 else{
@@ -174,7 +175,7 @@ function listTrack(ip,port,master_name,master_version,token,date,timeout,retryt,
             else{
                 if(res.statusCode>=500&&res.statusCode<600){
                     setTimeout(function(){
-                        uploadTrackPost(ip,port,master_name,master_version,token,data,timeout,retryt,fin);
+                        uploadTrackPost(ip,port,master_name,master_version,token,date,timeout,retryt,fin);
                     },retryt*1000);
                 }
                 else{

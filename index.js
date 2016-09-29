@@ -193,7 +193,8 @@ myEmitter.on('one_post_done', () => {
  * 測試模式(test)，為單機執行 不需要開啟api，先測試是否可以正確搜集到資料 並將資料合併成gaisRec，基本參數設定在loca端的crawler_setting.json file裡
  *  - log, error formater
  *  - request to fb
- *      - next page
+ *      v nexp page
+ *      r
  *      - error handler
  *      - retry handler
  *  - final_result formater
@@ -235,7 +236,7 @@ else{
                 *  2. 當程式停止時，主動向master發送停止訊息
                 *  3. 將從master那得來的設定檔和任務儲存到temp_pool裡，若有重新認證的情況時再將新的覆蓋回去
                 */
-                track_tool.applyCrawler(master_ip,master_port,master_name,master_version,invite_token,request_timeout,master_timeout_again,(flag,msg)=>{
+                track_tool.applyCrawler(serverport,master_ip,master_port,master_name,master_version,invite_token,request_timeout,master_timeout_again,(flag,msg)=>{
                     if(flag=='ok'){
                         app.use('/'+crawler_name+'/'+crawler_version,crawler);
                         access_token = msg['data']['access_token'];   
@@ -265,6 +266,7 @@ else{
             else if(mission['status']=='test2'){
                 access_token=mission['access_token'];
                 app.use('/'+master_name+'/'+master_version,master);
+                app.enable('trust proxy');
 
                 /*準備測試資料*/
                 var data ={
@@ -296,6 +298,23 @@ else{
                 track_tool.uploadTrackPost(master_ip,master_port,master_name,master_version,access_token,data,request_timeout,master_timeout_again,(flag,msg)=>{
                     if(flag=='ok'){
                         console.log(JSON.stringify(msg,null,3));
+                        /*測試*/
+                        track_tool.applyCrawler(serverport,master_ip,master_port,master_name,master_version,invite_token,request_timeout,master_timeout_again,(flag,msg)=>{
+                            if(flag=='ok'){
+                                app.use('/'+crawler_name+'/'+crawler_version,crawler);
+                                access_token = msg['data']['access_token'];   
+                                trackids = msg['data']['mission']['track_posts'];
+                                mission = msg['data']['mission'];
+                                mission['status']='test1';
+
+                                var temp = trackids.shift();
+                                console.log('id:'+temp);
+                            }
+                            else{
+                                console.log('['+flag+'] '+msg);
+                            }
+
+                        });
                     }
                     else{
                         console.log('['+flag+'] '+msg);

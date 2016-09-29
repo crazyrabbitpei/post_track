@@ -62,10 +62,12 @@ master.post('/',function(req,res){
         var min=-1;
         var token;
 
-    var access_token = md5(req.id+new Date()+Math.floor(Math.random() * (master_setting.random['max'] - master_setting.random['min'] + 1)) + master_setting.random['min']);
+    var access_token = md5(req.ip+new Date()+Math.floor(Math.random() * (master_setting.random['max'] - master_setting.random['min'] + 1)) + master_setting.random['min']);
     while(crawler_info.has(access_token)){
-        access_token = md5(req.id+new Date()+Math.floor(Math.random() * (master_setting.random['max'] - master_setting.random['min'] + 1)) + master_setting.random['min']);
+        access_token = md5(req.ip+new Date()+Math.floor(Math.random() * (master_setting.random['max'] - master_setting.random['min'] + 1)) + master_setting.random['min']);
     }
+
+    req.port = req.body.port;
     manageCrawler(access_token,req,'init');
 
     result['access_token'] = access_token;
@@ -167,17 +169,13 @@ master.route('/manageTracking')
             /*附上新增時間*/
             var now = new Date();
             trackList.set(post.id,now);
-            var track = new trackJob(post.id,post.created_time,post.track_time);
+            var track = new trackJob(post.id,post.created_time,post.pool_name);
             if(typeof trackingPool[track['pool']]==='undefined'){
                 trackingPool[track['pool']]=[];
             }
             trackingPool[track['pool']].push(track);
         }
     });
-    /*
-    result['access_token']=access_token;
-    result['track_pages']=trackingPool;
-    */
     result='Sucess upload track jobs!';
     sendResponse(res,'ok',200,result);
 })
@@ -191,7 +189,6 @@ master.route('/manageTracking')
     var date = req.query.date;
     var before = req.query.before;
     var after = req.query.after;
-    console.log(before+', '+after);
     var result = listTrackByDate(date);
     /*沒有指定任何區間，則預設都不顯示*/
     if((typeof before!=='undefined'&&new Date(before).isValid)||(typeof after!=='undefined'&&new Date(after).isValid)){
@@ -208,7 +205,8 @@ master.route('/manageTracking')
     else{
         sendResponse(res,'ok',200,result);
     }
-
+    var temp = getCrawler();
+    console.log('get crawler:'+JSON.stringify(temp,null,3));
 });
 
 module.exports = master;
@@ -278,7 +276,8 @@ function trackJob(id,date,pool){
 function manageCrawler(token,crawler,type){
     var info = new Object()
     if(type=='init'){
-        info['cnt']=0;
+        info['cnt']=Math.floor(Math.random()*(5-1+1)+1);
+        //info['cnt']=0;
         info['ip']=crawler['ip'];
         info['port']=crawler['port'];
         info['active']=new Date();
@@ -309,6 +308,20 @@ function manageCrawler(token,crawler,type){
         }
     }
     crawler_info.set(token,info);
+}
+function getCrawler(){
+    var keys = crawler_info.keys();
+    var i,min,index,result;
+    min = crawler_info.get(keys[1]).cnt;//因為第一項為demo用token，所以index 從1開始
+    index=1;
+    for(i=2;i<keys.length;i++){
+        console.log(keys[i]+':'+JSON.stringify(crawler_info.get(keys[i]))+':'+crawler_info.get(keys[i]).cnt);
+        if(crawler_info.get(keys[i]).cnt<min){
+            min=crawler_info.get(keys[i]).cnt;
+            index=i;
+        }
+    }
+    return crawler_info.get(keys[index]);
 }
 function sendMission(ip,port,crawler_name,crawler_version,control_token,crawler_token,fin){
     var crawler = new Object();
