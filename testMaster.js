@@ -17,7 +17,6 @@ var mission = crawler_setting['mission'];
 var access_token = mission['access_token'];
 
 var test = new master_tool.Track();
-
 var data ={
     track_pages:[]
 }
@@ -85,9 +84,38 @@ for(i=0;i<tokens.length;i++){
     }
     
 }
-
+/*
 console.log('Get:'+JSON.stringify(test.listCrawlers(),null,2));
 console.log('findMissionCrawler:'+JSON.stringify(test.findMissionCrawler(),null,2));
+*/
+
+var schedule1='demo1';
+var schedule2='demo2';
+var schedule3='demo3';
+var schedule4='demo4';
+console.log('Get:'+JSON.stringify(test.listSchedules(),null,2));
+console.log('Update:'+test.updateSchedule(schedule2,{description:'',track_time:'*/5 * * * * *',new_schedule_name:schedule4}));
+
+
+console.log('Search:'+JSON.stringify(test.getSchedule(schedule4),null,2));
+
+console.log('Delete:'+JSON.stringify(test.deleteSchedule(schedule1),null,2));
+console.log('After:'+JSON.stringify(test.listSchedules(),null,2));
+
+return;
+setTimeout(function(){
+    console.log('Update:'+test.updateSchedule(schedule2,{description:'',track_time:'*/5 * * * * *',new_schedule_name:schedule4}));
+    console.log('After update:'+JSON.stringify(test.listSchedules(),null,2));
+    console.log('Start:'+test.startSchedules());
+},3*1000);
+
+
+setTimeout(function(){
+    console.log('Stop:'+test.stopSchedules());
+    console.log('After:'+JSON.stringify(test.listSchedules(),null,2));
+},9*1000);
+
+
 
 
 
