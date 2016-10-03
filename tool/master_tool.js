@@ -4,7 +4,7 @@ var CronJob = require('cron').CronJob;
 var dateFormat = require('dateformat');
 
 var master_setting = JSON.parse(fs.readFileSync('./service/master_setting.json'));
-
+var mission = JSON.parse(fs.readFileSync('./service/mission.json'));
 
 class Track{
     constructor(){
@@ -199,14 +199,18 @@ class Track{
         }
         else{
             var result=[];
+            var i;
             //for(let i=0,id = this.trackPools[pool_name]['data'].shift();i<track_num&&id;i++){
-            for(let i=0;i<track_num;i++){
+            for(i=0;i<track_num;i++){
                 let id = this.trackPools[pool_name]['data'].shift();
                 if(!id){
                     break;
                 }
                 result.push(id);
             }
+        }
+        if(i==0){
+            return false;
         }
         return result;
     }
@@ -406,7 +410,7 @@ class Track{
         result['token']=token;
         /*回傳值會被引用端改變*/
         result['info']=this.crawlersInfo.get(token);
-        this.crawlerSatus.set(token,'ing');
+
 
         return result;
     }
@@ -468,14 +472,27 @@ class Track{
                     track_pool = info['track_pool_name'];
                 }
                 console.log('Start ['+name+'], time:'+info['track_time']+' pool:'+track_pool);
-                var crawler;
+                var crawler,ids;
+                /*行程設定時間一到，先檢查有無可指派任務的crawler，再檢查有無id可發出。*/
+                while((crawler = _self.findMissionCrawler())&&(ids = _self.shiftTrackId(track_pool,info['track_num']))){
+                    _self.crawlerSatus.set(crawler['token'],'ing');
+                    console.log('Crawler:'+JSON.stringify(crawler,null,3)+'\nids:'+JSON.stringify(ids,null,3));
+                    /*TODO:crawler_name,crawler_version,control_token之後也是由client給予，資訊會一起包在info裡，目前先用server端預設*/
+                    this.sendMission(crawler['token'],{ip:crawler['info']['ip'],port:crawler['info']['port'],crawler_name:master_setting.crawler_name,crawler_version:master_setting.crawler_version,control_token:master_setting.control_token,track_ids:ids});
+                }
+                /*
                 if(_self.hasTrackId(track_pool)&&(crawler = _self.findMissionCrawler())){
                     let ids = _self.shiftTrackId(track_pool,info['track_num']);
                     console.log('Crawler:'+JSON.stringify(crawler,null,3)+'\nids:'+JSON.stringify(ids,null,3));
-
                 }
-
+                else{
+                    delaySchdule({pool_name:track_pool,time:info['track_time'],track_num:info['track_num']});
+                }
+                */
+                /* TODO:如果目前該pool沒有任何id可以追蹤，或是沒有可以用的crawler，則將追蹤行程延後*/
                 /*分配id給crawler*/
+
+
             },
             start:true,
             timeZone:'Asia/Taipei'
@@ -583,6 +600,74 @@ class Track{
             }
         }
         return true;
+    }
+    /*TODO*/
+    sendMission(crawler_token,{ip,port,crawler_name,crawler_version,control_token,track_ids}){
+        mission['track_posts']=[];
+        mission['track_posts'] = track_ids.map(function(x){
+            return x.post_id;
+        });
+        console.log(JSON.stringify(mission,null,3));
+        return;
+        request({
+            method:'POST',
+            json:true,
+            headers:{
+                "content-type":"application/json"
+            },
+            body:{
+                control_token:control_token,
+                mission:mission
+            },
+            url:'http://'+ip+':'+port+'/'+crawler_name+'/'+crawler_version+'/mission',
+            timeout:master_setting['request_timeout']*1000
+        },(err,res,body)=>{
+            if(!err&&res.statusCode==200){
+                var err_msg='';
+                var err_flag=0
+                try{
+                    var content = body;
+                }
+                catch(e){
+                    err_flag=1;
+                    err_msg=e;
+                }
+                finally{
+                    if(err_flag==1){
+                        writeLog('err','sendMission, '+err_msg);
+                        fin('err',err_msg);
+                    }
+                    else{
+                        manageCrawler(crawler_token,crawler,'ing');
+                        fin('ok',content);   
+                    }
+                }
+            }
+            else{
+                if(err){
+                    if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
+                        setTimeout(function(){
+                            sendMission(ip,port,crawler_name,crawler_version,token,fin)
+                        },master_setting['crawler_timeout_again']*1000);
+                    }
+                    else{
+                        writeLog('err','sendMission, '+err);
+                        fin('err','sendMission, '+err);
+                    }
+                }
+                else{
+                    if(res.statusCode>=500&&res.statusCode<600){
+                        setTimeout(function(){
+                            sendMission(ip,port,crawler_name,crawler_version,token,fin);
+                        },master_setting['crawler_timeout_again']*1000);
+                    }
+                    else{
+                        writeLog('err','sendMission, '+res['statusCode']+', '+body['err']);
+                        fin('err','sendMission, '+res['statusCode']+', '+body['err']);
+                    }
+                }
+            }
+        });
     }
 }
 

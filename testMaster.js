@@ -18,7 +18,7 @@ var access_token = mission['access_token'];
 
 var test = new master_tool.Track();
 var tokens=[];
-var post=new Object();
+
 
 var schedule1='demo1';
 var schedule2='demo2';
@@ -26,16 +26,23 @@ var schedule3='demo3';
 var schedule4='demo4';
 var schedule5='demo5';
 
-produceIds('test1',{rec_num:8});
-produceIds('10/03',{rec_num:8});
+//produceIds('test2',{rec_num:8});
+//produceIds('10/03',{rec_num:8});
 //produceCrawlers({rec_num:2});
+setTimeout(function(){
+    console.log('List Crawlers:'+JSON.stringify(test.listCrawlers(),null,2));
+    console.log('List Pools:'+JSON.stringify(test.listPools(),null,2));
+    console.log('List Schedules:'+JSON.stringify(test.listSchedules(),null,2));
+},25*1000);
 
-console.log('List Crawlers:'+JSON.stringify(test.listCrawlers(),null,2));
-console.log('List Pools:'+JSON.stringify(test.listPools(),null,2));
-console.log('List Schedules:'+JSON.stringify(test.listSchedules(),null,2));
-randomId({time:5,rec_num:8});
-randomCrawler({time:10,rec_num:8});
-randomSchedule({time:15});
+randomId({time:5,rec_num:4});
+randomCrawler({time:7,rec_num:3});
+/*
+
+randomId({time:20,rec_num:8});
+
+randomSchedule({time:4});
+*/
 /*
 console.log('Get:'+JSON.stringify(test.listCrawlers(),null,2));
 var result = test.findMissionCrawler();
@@ -50,6 +57,7 @@ console.log(JSON.stringify(test.getPool('past1')));
 function produceIds(option='test1',{rec_num=5,id_max=1000000,id_min=200000,date_max=0,date_min=-14,track_min=-30,track_max=30}){
     var now,plus,after;
     var track_after;
+    var post=new Object();
     for(var i=0;i<rec_num;i++){
         now = new Date();
         plus = (Math.floor(Math.random()*(date_max-date_min+1)+date_min));
@@ -66,14 +74,11 @@ function produceIds(option='test1',{rec_num=5,id_max=1000000,id_min=200000,date_
             //post['created_time']='2016/09/28 12:00:12';
         }
         if(option.indexOf('test')!=-1){
-            post['created_time']='';
             post['pool_name']=option;
         }
         else{
             post['created_time']='2016/09/28 16:00:12';
-            post['pool_name']='';
         }
-
 
         if(!test.insertIdsToPool(post['id'],{pool_name:post['pool_name'],created_time:post['created_time']})){
             //if(!test.insertIdsToPool(post['id'],{pool_name:post['pool_name'],created_time:post['created_time']})){
@@ -142,11 +147,12 @@ function randomSchedule({time=3,rec_num=5}){
         //console.log('After update:'+JSON.stringify(test.listSchedules(),null,2));
         console.log('Start:'+test.startSchedules(schedule1));
     },(time+3)*1000);
-    
+    /*   
     setTimeout(function(){
         console.log('Stop:'+test.stopSchedules());
         console.log('After:'+JSON.stringify(test.listSchedules(),null,2));
     },(time+6)*1000);
+    */
 }
 
 function getInterval(a,b){
