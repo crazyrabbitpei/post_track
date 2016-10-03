@@ -19,7 +19,7 @@ class Track{
 
         this.crawlersInfo=new Map();
         this.crawlerSatus=new Map();
-        for(let i=0,crawlers=master_setting.demo;i<crawlers.length;i++){
+        for(let i=0,crawlers=master_setting.crawlers;i<crawlers.length;i++){
             let info={};
             info['ip']=crawlers[i]['ip'];
             info['port']=crawlers[i]['port'];
@@ -32,12 +32,14 @@ class Track{
         this.schedulesInfo=new Map();
         this.schedulesJob=new Map();
         for(let i=0,schedules=master_setting.schedules;i<schedules.length;i++){
-            if(!this.newSchedule({name:schedules[i]['name'],description:schedules[i]['description'],track_time:schedules[i]['track_time'],track_pool_name:schedules[i]['track_pool_name']})){
+            if(!this.newSchedule(schedules[i]['name'],{description:schedules[i]['description'],track_time:schedules[i]['track_time'],track_pool_name:schedules[i]['track_pool_name'],schedule_status:schedules[i]['status']})){
                 return false;
             }
+            /*
             if(schedules[i]['status']=='on'){
                 this.startSchedules(schedules[i]['name']);
             }
+            */
             /*
             let info={};
             info['description']=schedules[i]['description'];
@@ -191,9 +193,37 @@ class Track{
         this.trackPools[name]['data'].push({post_id:post_id,created_time:created_time,pool_name:name});
         return true;
     }
+    shiftTrackId(pool_name,track_num=master_setting.ids_num){
+        if(!pool_name||!this.trackPools[pool_name]){
+            return false;
+        }
+        else{
+            var result=[];
+            //for(let i=0,id = this.trackPools[pool_name]['data'].shift();i<track_num&&id;i++){
+            for(let i=0;i<track_num;i++){
+                let id = this.trackPools[pool_name]['data'].shift();
+                if(!id){
+                    break;
+                }
+                result.push(id);
+            }
+        }
+        return result;
+    }
+    hasTrackId(pool_name){
+        if(!this.trackPools[pool_name]){
+            return false;
+        }
+        else{
+            if(this.trackPools[pool_name]['data'].length==0){
+                return false;
+            }
+        }
+        return true;
+    }
     /*TODO*/
     getPostIds(post_id){
-        
+        return false;
     }
     /*TODO*/
     deletePostIds(){
@@ -216,7 +246,6 @@ class Track{
         this.trackPools[pool_name]['data']=[];
         return true;
     }
-    /*TODO:testing*/
     getPool(pool_name){
         if(!pool_name){
             return false;
@@ -228,13 +257,16 @@ class Track{
         return this.trackPools[pool_name];
     }
     deletePool(pool_name){
-        if(this.trackPools[pool_name]){
-            delete this.trackPools[pool_name];
-            return true;
-        }   
-        else{
+        if(!pool_name){
             return false;
         }
+        else if(!this.trackPools[pool_name]){
+            return false;
+        }
+        else if(this.trackPools[pool_name]){
+            delete this.trackPools[pool_name];
+        }   
+        return true;
     }
     updatePool(pool_name,...args){
         if(!args[0]){
@@ -372,18 +404,18 @@ class Track{
         }
         var result={};
         result['token']=token;
-        /*以下要測試回傳值是否會被引用端改變，進而影響所有info內容*/
+        /*回傳值會被引用端改變*/
         result['info']=this.crawlersInfo.get(token);
         this.crawlerSatus.set(token,'ing');
 
         return result;
     }
     /*先創建行程資訊，實際的cronjob先不用創建*/
-    newSchedule({name,description='Schedule_'+name,track_time=master_setting.default_track_time,track_pool_name=master_setting.default_track_pool_name}={}){
-        if(!name){
+    newSchedule(schedule_name,{description='Schedule_'+schedule_name,track_time=master_setting.default_track_time,track_pool_name=master_setting.default_track_pool_name,schedule_status='off',track_num=master_setting.ids_num}={}){
+        if(!schedule_name){
             return false;
         }   
-        if(this.schedulesInfo.has(name)){
+        if(this.schedulesInfo.has(schedule_name)){
             return false;
         }
 
@@ -391,22 +423,28 @@ class Track{
         info['description']=description;
         info['track_time']=track_time;
         info['track_pool_name']=track_pool_name;
+        info['track_num']=track_num;
         info['status']='off';
-        this.schedulesInfo.set(name,info);
+
+        this.schedulesInfo.set(schedule_name,info);
+        if(schedule_status=='on'){
+            this.startSchedules(schedule_name);
+        }
 
         return true;
     }
     startSchedules(...schedules){
         if(schedules.length==0){
             for(var [key,value] of this.schedulesInfo.entries()){
-                console.log('key:'+key+' value:'+JSON.stringify(value,null,3));
                 if(!this.createSingleSchedule(key)){
+                    continue;
                 }
             }
         }
         else{
             for(var i=0;i<schedules.length;i++){
                 if(!this.createSingleSchedule(schedules[i])){
+                    continue;
                 }
             }
         }
@@ -416,15 +454,26 @@ class Track{
         if(!this.schedulesInfo.has(schedule_name)){return false;}//此行程名稱不存在清單裡
         let info = this.schedulesInfo.get(schedule_name);
         if(info['status']=='on'){return false;}//此行程已開啓，不能再開第二次
-
+        var _self=this;
         let name = schedule_name;
         let schedule = new CronJob({
             cronTime:info['track_time'],
             onTick:function(){
-                console.log('Start ['+name+'], time:'+info['track_time']+' pool:'+info['track_pool_name']);
-                /*檢查有無可分配出的id*/
 
-                /*檢查有無在線的crawler*/
+                let track_pool;
+                if(info['track_pool_name']=='default'){
+                    track_pool = (new Date().getMonth()+1)+'/'+new Date().getDate();
+                }
+                else{
+                    track_pool = info['track_pool_name'];
+                }
+                console.log('Start ['+name+'], time:'+info['track_time']+' pool:'+track_pool);
+                var crawler;
+                if(_self.hasTrackId(track_pool)&&(crawler = _self.findMissionCrawler())){
+                    let ids = _self.shiftTrackId(track_pool,info['track_num']);
+                    console.log('Crawler:'+JSON.stringify(crawler,null,3)+'\nids:'+JSON.stringify(ids,null,3));
+
+                }
 
                 /*分配id給crawler*/
             },
@@ -466,6 +515,11 @@ class Track{
         else if(!this.schedulesInfo.has(schedule_name)){
             return false;
         }
+        
+        if(this.schedulesInfo.get(schedule_name)['status']=='on'){
+            this.stopSchedules(schedule_name);    
+        }
+
         this.schedulesInfo.delete(schedule_name);
         return true;
     }
