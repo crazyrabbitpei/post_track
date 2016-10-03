@@ -39,7 +39,7 @@ crawler_info.set(master_setting['demo_token'],new Object());
 /*所有的request都必須被檢查其access token*/
 master.use(function(req,res,next){
     var access_token = req.body['access_token'];
-    if((!crawler_info.has(access_token)&&req.path!='/')||(access_token!=master_setting['invite_token'])&&req.path=='/'){
+    if((!crawler_info.has(access_token)&&req.path!='/apply')||(access_token!=master_setting['invite_token'])&&req.path=='/apply'){
         sendResponse(res,'token_err','','');
         return;
     }
@@ -51,7 +51,7 @@ master.use(function(req,res,next){
  *  -需要邀請碼
  *  -回傳任務和access_token
  */
-master.post('/',function(req,res){
+master.post('/apply',function(req,res){
     /* 申請物件：
      *  1.權限token
      *  2.基本mission，包含graph_request_interval, graph_timeout_again, site, graph_version, fields, limit
