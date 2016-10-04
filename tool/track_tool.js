@@ -21,7 +21,7 @@ function applyCrawler(crawler_port,ip,port,master_name,master_version,token,time
         url:'http://'+ip+':'+port+'/'+master_name+'/'+master_version,
         timeout:timeout*1000
     },(err,res,body)=>{
-        if(!err&&res.statusCode==200){
+        if(!err&&(res.statusCode>=200&&res.statusCode<300)){
             var err_msg='';
             var err_flag=0
             try{
@@ -82,7 +82,7 @@ function uploadTrackPost(ip,port,master_name,master_version,token,data,timeout,r
         url:'http://'+ip+':'+port+'/'+master_name+'/'+master_version+'/manageTracking',
         timeout:timeout*1000
     },(err,res,body)=>{
-        if(!err&&res.statusCode==200){
+        if(!err&&(res.statusCode>=200&&res.statusCode<300)){
             var err_msg='';
             var err_flag=0
             try{
@@ -140,7 +140,7 @@ function listTrack(ip,port,master_name,master_version,token,date,timeout,retryt,
         url:'http://'+ip+':'+port+'/'+master_name+'/'+master_version+'/manageTracking?'+query,
         timeout:timeout*1000
     },(err,res,body)=>{
-        if(!err&&res.statusCode==200){
+        if(!err&&(res.statusCode>=200&&res.statusCode<300)){
             var err_msg='';
             var err_flag=0
             try{
@@ -200,7 +200,7 @@ function missionReport(ip,port,master_name,master_version,token,mission_status,t
         url:'http://'+ip+':'+port+'/'+master_name+'/'+master_version+'/mission_status',
         timeout:timeout*1000
     },(err,res,body)=>{
-        if(!err&&res.statusCode==200){
+        if(!err&&(res.statusCode>=200&&res.statusCode<300)){
             var err_msg='';
             var err_flag=0
             try{
@@ -256,7 +256,7 @@ function trackPost(timeout,mission,post_id,fin){
         url:site,
         timeout:timeout*1000
     },(err,res,body)=>{
-        if(!err&&res.statusCode==200){
+        if(!err&&(res.statusCode>=200&&res.statusCode<300)){
             var err_msg='';
             var err_flag=0
             try{
@@ -726,7 +726,7 @@ function fetchNextPage(timeout,mission,site,fin){
         url:site,
         timeout:timeout*1000
     },(err,res,body)=>{
-        if(!err&&res.statusCode==200){
+        if(!err&&(res.statusCode>=200&&res.statusCode<300)){
             var err_msg='';
             var err_flag=0
             try{

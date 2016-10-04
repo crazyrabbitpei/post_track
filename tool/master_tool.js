@@ -4,10 +4,12 @@ var CronJob = require('cron').CronJob;
 var dateFormat = require('dateformat');
 
 var master_setting = JSON.parse(fs.readFileSync('./service/master_setting.json'));
-var mission = JSON.parse(fs.readFileSync('./service/mission.json'));
 
 class Track{
     constructor(){
+        this.mission = JSON.parse(fs.readFileSync('./service/mission.json'));
+        this.post_idInfo =  new Map();//(token,發出去的時間)
+
         this.trackPools={};
         for(let i=0,pools=master_setting.trackpools,keys=Object.keys(pools);i<keys.length;i++){
             let key=keys[i];
@@ -148,7 +150,17 @@ class Track{
         if(!post_id){
             return false;
         }
-        
+        /*TODO*/
+        /*不允許post id重複，即使是在不同pool*/
+        if(this.hasPostId()){
+            return false;
+        }
+        else{
+            this.post_idInfo.set(post_id,0);
+            console.log('Set:'+post_id+' '+this.post_idInfo.get(post_id));
+        }
+
+
         var name,pool_name,created_time;
         if(args[0]){
             pool_name=args[0]['pool_name'],created_time=args[0]['created_time'];
@@ -185,12 +197,15 @@ class Track{
         }
         
         if(!name){
-            name = this.parsePoolName(created_time);
+            if(!(name = this.parsePoolName(created_time))){
+                return false;
+            }
         }
         if(!this.checkPoolName(name)){
             this.newPool(name);
         }
         this.trackPools[name]['data'].push({post_id:post_id,created_time:created_time,pool_name:name});
+
         return true;
     }
     shiftTrackId(pool_name,track_num=master_setting.ids_num){
@@ -203,7 +218,7 @@ class Track{
             //for(let i=0,id = this.trackPools[pool_name]['data'].shift();i<track_num&&id;i++){
             for(i=0;i<track_num;i++){
                 let id = this.trackPools[pool_name]['data'].shift();
-                if(!id){
+                if(!id||!this.post_idInfo.has(id['post_id'])){
                     break;
                 }
                 result.push(id);
@@ -214,14 +229,17 @@ class Track{
         }
         return result;
     }
-    hasTrackId(pool_name){
-        if(!this.trackPools[pool_name]){
+    /*TODO*/
+    missionStatus(token,mission_status){
+        if(!token||!mission_status||!this.crawlerSatus.has(token)){
             return false;
         }
-        else{
-            if(this.trackPools[pool_name]['data'].length==0){
-                return false;
-            }
+        this.crawlerSatus.set(token,mission_status);
+    }
+    /*TODO:testing*/
+    hasPostId(id){
+        if(!id||!this.post_idInfo.has(id)){
+            return false;
         }
         return true;
     }
@@ -314,6 +332,9 @@ class Track{
     }
     /*依照給予的發文日期來賦予追蹤pool_name*/
     parsePoolName(created_time){
+        if(isNaN(new Date(created_time).getTime())){
+            return false;
+        }
         created_time=new Date(created_time);
         var after = created_time.getDate()+master_setting['track_interval'];
         created_time.setDate(after);
@@ -322,22 +343,28 @@ class Track{
         return  mm+'/'+dd;
     }
 
-    insertCrawler(token,...args){
+    //insertCrawler(token,...args){
+    insertCrawler(token,{ip,port}={}){
         if(!token){
             return false;
         }
         else if(this.crawlersInfo.has(token)){
             return false;
         }
+        /*
         if(!args[0]){
             return false;
         }
         else if(!args[0]['ip']||!args[0]['port']){
             return false;
         }
+        */
+        if(!ip||!port){
+           return false;
+        }
         let info={};
-        info['ip']=args[0]['ip'];
-        info['port']=args[0]['port'];
+        info['ip']=ip;
+        info['port']=port;
         info['created_time']=dateFormat(new Date(),'yyyy/mm/dd HH:MM:ss');
         info['active_time']=dateFormat(new Date(),'yyyy/mm/dd HH:MM:ss');
         this.crawlersInfo.set(token,info);
@@ -476,9 +503,13 @@ class Track{
                 /*行程設定時間一到，先檢查有無可指派任務的crawler，再檢查有無id可發出。*/
                 while((crawler = _self.findMissionCrawler())&&(ids = _self.shiftTrackId(track_pool,info['track_num']))){
                     _self.crawlerSatus.set(crawler['token'],'ing');
+                    /*TODO:tetsing*/
+                    _self.recordPostSendTime(ids);
+
+
                     console.log('Crawler:'+JSON.stringify(crawler,null,3)+'\nids:'+JSON.stringify(ids,null,3));
                     /*TODO:crawler_name,crawler_version,control_token之後也是由client給予，資訊會一起包在info裡，目前先用server端預設*/
-                    this.sendMission(crawler['token'],{ip:crawler['info']['ip'],port:crawler['info']['port'],crawler_name:master_setting.crawler_name,crawler_version:master_setting.crawler_version,control_token:master_setting.control_token,track_ids:ids});
+                    _self.sendMission(crawler['token'],{ip:crawler['info']['ip'],port:crawler['info']['port'],crawler_name:master_setting.crawler_name,crawler_version:master_setting.crawler_version,control_token:master_setting.control_token,track_ids:ids});
                 }
                 /*
                 if(_self.hasTrackId(track_pool)&&(crawler = _self.findMissionCrawler())){
@@ -501,6 +532,13 @@ class Track{
         this.schedulesJob.set(schedule_name,schedule);
         return true;
         
+    }
+    /*TODO*/
+    recordPostSendTime([...ids]){
+        for(let i=0;i<ids.length;i++){
+            this.post_idInfo.set(ids[i]['post_id'],new Date());//記錄發出時間
+            console.log('Send:'+ids[i]['post_id']+' '+this.post_idInfo.get(ids[i]['post_id']));
+        }
     }
     /*停止時，會連同整個行程(schedulesJob)一起刪除，但是資訊(schedulesInfo)還會在*/
     stopSchedules(...schedules){
@@ -603,11 +641,11 @@ class Track{
     }
     /*TODO*/
     sendMission(crawler_token,{ip,port,crawler_name,crawler_version,control_token,track_ids}){
-        mission['track_posts']=[];
-        mission['track_posts'] = track_ids.map(function(x){
+        this.mission['track_posts']=[];
+        this.mission['track_posts'] = track_ids.map(function(x){
             return x.post_id;
         });
-        console.log(JSON.stringify(mission,null,3));
+        console.log(JSON.stringify(this.mission,null,3));
         return;
         request({
             method:'POST',
@@ -635,11 +673,10 @@ class Track{
                 finally{
                     if(err_flag==1){
                         writeLog('err','sendMission, '+err_msg);
-                        fin('err',err_msg);
+                        return false;
                     }
                     else{
-                        manageCrawler(crawler_token,crawler,'ing');
-                        fin('ok',content);   
+                        return true;
                     }
                 }
             }
@@ -647,23 +684,23 @@ class Track{
                 if(err){
                     if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
                         setTimeout(function(){
-                            sendMission(ip,port,crawler_name,crawler_version,token,fin)
+                            sendMission(crawler_token,{ip,port,crawler_name,crawler_version,control_token,track_ids});
                         },master_setting['crawler_timeout_again']*1000);
                     }
                     else{
                         writeLog('err','sendMission, '+err);
-                        fin('err','sendMission, '+err);
+                        return false;
                     }
                 }
                 else{
                     if(res.statusCode>=500&&res.statusCode<600){
                         setTimeout(function(){
-                            sendMission(ip,port,crawler_name,crawler_version,token,fin);
+                            sendMission(crawler_token,{ip,port,crawler_name,crawler_version,control_token,track_ids});
                         },master_setting['crawler_timeout_again']*1000);
                     }
                     else{
                         writeLog('err','sendMission, '+res['statusCode']+', '+body['err']);
-                        fin('err','sendMission, '+res['statusCode']+', '+body['err']);
+                        return false;
                     }
                 }
             }

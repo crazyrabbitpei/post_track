@@ -9,6 +9,7 @@
  *  5.設定檔：是否抓原文？
  *
 * */
+var master_tool = require('./tool/master_tool.js');
 var request = require('request');
 var fs = require('fs');
 var LineByLineReader = require('line-by-line');
@@ -19,9 +20,9 @@ var HashMap = require('hashmap');
 var master = express.Router();
 
 var crawler_info = new HashMap();
-var graph_tokens = [];
+var graph_tokens = new Map();
 var track_ids = [];
-
+var track = new master_tool.Track();
 /*
  * Config
  * 讀取
@@ -30,16 +31,16 @@ var track_ids = [];
  *  -demo用追蹤post id，之後要以追蹤週期為單位存放post id，並讀入相對pool
  */
 var master_setting = JSON.parse(fs.readFileSync('./service/master_setting.json'));
-var mission = JSON.parse(fs.readFileSync('./service/mission.json'));
+//var mission = JSON.parse(fs.readFileSync('./service/mission.json'));
 loadGraphToken();
 loadIds();
 /*給予demo用的通行証*/
-crawler_info.set(master_setting['demo_token'],new Object());
+//crawler_info.set(master_setting['demo_token'],new Object());
 
 /*所有的request都必須被檢查其access token*/
 master.use(function(req,res,next){
     var access_token = req.body['access_token'];
-    if((!crawler_info.has(access_token)&&req.path!='/apply')||(access_token!=master_setting['invite_token'])&&req.path=='/apply'){
+    if((!track.getCrawler(access_token)&&req.path!='/apply')||(access_token!=master_setting['invite_token'])&&req.path=='/apply'){
         sendResponse(res,'token_err','','');
         return;
     }
@@ -58,20 +59,29 @@ master.post('/apply',function(req,res){
      *  3.額外的mission，在基本設定檔裡(missoin.json)不會出現，為動態配置，包含graph_token, track_posts(欲追蹤的post ids)
      *
      * */
-        var result = new Object();
-        var min=-1;
-        var token;
-
-    var access_token = md5(req.ip+new Date()+Math.floor(Math.random() * (master_setting.random['max'] - master_setting.random['min'] + 1)) + master_setting.random['min']);
-    while(crawler_info.has(access_token)){
-        access_token = md5(req.ip+new Date()+Math.floor(Math.random() * (master_setting.random['max'] - master_setting.random['min'] + 1)) + master_setting.random['min']);
+    if(!(mission['graph_token'] = getGraphToken())){
+        sendResponse(res,'fail',200,'Do not have any usebale graph token, please try again.');
+        return;
     }
 
-    req.port = req.body.port;
-    manageCrawler(access_token,req,'init');
+    var result = new Object();
+    var min=-1;
+    var token;
 
+    var access_token = md5(req.ip+new Date()+Math.floor(Math.random() * (master_setting.random['max'] - master_setting.random['min'] + 1)) + master_setting.random['min']);
+    while(track.getCrawler(access_token)){
+        access_token = md5(req.ip+new Date()+Math.floor(Math.random() * (master_setting.random['max'] - master_setting.random['min'] + 1)) + master_setting.random['min']);
+    }
     result['access_token'] = access_token;
-    mission['graph_token']=getGraphToken();
+    
+    req.port = req.body.port;
+    track.insertCrawler(access_token,{ip:req.ip,port:req.port});
+
+
+    result['mission'] = mission;
+    sendResponse(res,'ok',200,result);
+    console.log('Master:\n'+JSON.stringify(track.listCrawlers(),null,3));
+    /*
     mission['track_posts'] = [];
     var id = track_ids.shift();
     var i=0;
@@ -85,12 +95,15 @@ master.post('/apply',function(req,res){
             break;
         }
     }
+    */
     /*若有馬上指派任務，則將crawler_info的狀態改為ing，代表目前正在搜集資料，若沒任務可指派 則維持init*/
+    /*
     if(i!=0){
         manageCrawler(access_token,req,'ing');
     }
-    result['mission'] = mission;
-    sendResponse(res,'ok',200,result);
+
+    */
+
 });
 /*
  * POST
@@ -106,13 +119,19 @@ master.route('/mission_status')
 .post(function(req,res){
     var access_token = req.body['access_token'];
     var mission_status = req.body['mission_status'];
-    /*將狀態給為done，代表此crawler為閒置*/
-    manageCrawler(access_token,req,'done');
-    var result='get token:'+access_token+' get status:'+mission_status;
-    sendResponse(res,'ok',200,result);
+    var result;
+    if(track.missionStatus(access_token,mission_status)){
+        result='get token:'+access_token+' get status:'+mission_status;
+        sendResponse(res,'ok',200,result);
+    }
+    else{
+        result='Update crawler ['+access_token+'] status fail!';
+        sendResponse(res,'fail',200,result);
+    }
 
-    /*TODO:繼續給予下一個任務之前，必須先觀察此crawler目前行程是否已滿，若已滿 則不給予新任務，以及要看目前是否有可以發出的任務*/
-    /*TODO:應該記錄每支爬蟲的ip, port ，control應改為crawler access token，其餘api參數也應由crawler給予 而非master*/
+    return;
+
+    /*
     var ip='nubot3.ddns.net';
     var port='3790';
     var crawler_name='trackingCrawler';
@@ -126,8 +145,10 @@ master.route('/mission_status')
             console.log('Master ['+flag+'] '+msg);
         }
     });
+    */
 })
 .get(function(req,res){
+    /*
     var crawlers=[];
     var info=new Object();
     crawler_info.forEach(function(value,key){
@@ -135,7 +156,8 @@ master.route('/mission_status')
         info['info']=value;
         crawlers.push(info);   
     });
-    sendResponse(res,'ok',200,crawlers);
+    */
+    sendResponse(res,'ok',200,track.listCrawlers());
 })
 /* POST
  * 接收來自data crawler傳來的post id
@@ -159,24 +181,15 @@ master.route('/manageTracking')
 .post(function(req,res){
     var track_pages = req.body['data']['track_pages'];
     var result=new Object();
-
+    var fail_id=[];
     track_pages.map(function(post){
         /*該post已存在於tracking list*/
-        if(trackList.has(post.id)){
-            sendResponse(res,'ok',200,'Post id ['+post.id+'] exist.');
-        }
-        else{
-            /*附上新增時間*/
-            var now = new Date();
-            trackList.set(post.id,now);
-            var track = new trackJob(post.id,post.created_time,post.pool_name);
-            if(typeof trackingPool[track['pool']]==='undefined'){
-                trackingPool[track['pool']]=[];
-            }
-            trackingPool[track['pool']].push(track);
+        if(!track.insertIdsToPool(post.id)){
+            fail_id.push(post.id);
+            //sendResponse(res,'ok',200,'Post id ['+post.id+'] exist.');
         }
     });
-    result='Sucess upload track jobs!';
+    result='Upload fail:'+fail_id;
     sendResponse(res,'ok',200,result);
 })
 .put(function(req,res){
@@ -189,7 +202,26 @@ master.route('/manageTracking')
     var date = req.query.date;
     var before = req.query.before;
     var after = req.query.after;
-    var result = listTrackByDate(date);
+    if(date){
+        var result = listPoolByDate(date);
+        if(!result){
+            result='Can\' find any track job in pool '+date; 
+            sendResponse(res,'fail',200,result);
+        }
+        else{
+            sendResponse(res,'ok',200,result);
+        }
+    }
+    else if(before||after){
+        before=track.parsePoolName(before);
+        after=track.parsePoolName(after);
+        listPoolByInterval({before:before,after:after});
+    }
+    else{
+        listPoolAll();       
+    }
+
+    return;
     /*沒有指定任何區間，則預設都不顯示*/
     if((typeof before!=='undefined'&&new Date(before).isValid)||(typeof after!=='undefined'&&new Date(after).isValid)){
         result.push(listTrackByInterval(before,after));
@@ -198,23 +230,27 @@ master.route('/manageTracking')
         console.log(new Date(before)+', '+new Date(after));
         console.log(new Date(before).isValid+' ,'+new Date(after).isValid);
     }
-    if(typeof result=='undefined'){
-        result='Can\' find any tarck job in pool '+date; 
-        sendResponse(res,'fail',200,result);
-    }
-    else{
-        sendResponse(res,'ok',200,result);
-    }
-    var temp = getCrawler();
-    console.log('get crawler:'+JSON.stringify(temp,null,3));
+
+
 });
 
 module.exports = master;
-function listTrackByDate(date){
-    return trackingPool[date];
+function listPoolAll(){
+    return track.listPools();
 }
-function listTrackByInterval(before,after){
+function listPoolByDate(date){
+    var pool_name;
+    if(!(pool_name=track.parsePoolName(date))){
+        return false;
+    }
+    else{
+        return track.getPool(pool_name);
+    }
+}
+/*TODO*/
+function listPoolByInterval({before,after}){
     /*如果未指定要顯示哪個日期前的資料，則預設*/
+    /*
     if(typeof before=='undefined'){
         before = new Date(after).setDate(new Date(after).getDate()+31);
         console.log('before:'+before);
@@ -223,7 +259,20 @@ function listTrackByInterval(before,after){
         after= new Date(after).setDate(new Date(after).getDate()+31);
         console.log('after:'+after);
     }
+    */
+    var result=[];
+    var cnt_date = new Date(after).getDate();
+    var next_date;
+    if(after){
+        next_date=new Date(after);
+    }
+    if(before){
+        next_date=new Date(before);
+    }
 
+    for(){
+        next_date = next_date.setDate(next_date.getDate()+1);
+    }
     return {id:'0000'};
 }
 function searchPostById(id){
@@ -283,7 +332,7 @@ function manageCrawler(token,crawler,type){
         info['active']=new Date();
     }
     else if(type=='ing'){
-        if(!crawler_info.has(token)){
+        if(!track.getCrawler(token)){
             writeLog('err','manageCrawler, '+token+' not exists');
         }
         else{
@@ -295,7 +344,7 @@ function manageCrawler(token,crawler,type){
         }
     }
     else if(type=='done'){
-        if(!crawler_info.has(token)){
+        if(!track.getCrawler(token)){
             writeLog('err','manageCrawler, '+token+' not exists');
         }
         else{
@@ -407,25 +456,20 @@ function sendMission(ip,port,crawler_name,crawler_version,control_token,crawler_
 }
 
 function getGraphToken(){
-    var min=-1;
     var token;
-    graph_tokens.map(function(x){
-        if(min==-1){
-            min = x.cnt;
-            token = x.token;
+    for(let [key,value] of graph_tokens.entries()){
+        if(value<master_setting.graph_token_limit){
+            token=key;
+            graph_tokens.set(key,value+1);
+            break;
         }
-        else{
-            if(min>x.cnt){
-                min = x.cnt;
-                token = x.token;
-            }
-        }
-    });
-    var getTokenContent = graph_tokens.find(function(x){
-        return x.token===token;
-    });
-    getTokenContent.cnt++;
-    return token;
+    }
+    if(!token){
+        return false;
+    }
+    else{
+        return token;
+    }
 }
 
 function loadGraphToken(){
@@ -442,7 +486,14 @@ function loadGraphToken(){
             lr.end();
         }
         else{
-            graph_tokens.push({token:parts[0],cnt:parts[1]});
+            if(!parta[1]||isNaN(parseInt(parts[1]))){
+                parts[1]=0;
+            }
+            else{
+                part[1]=parseInt(parts[1]);
+            }
+            graph_tokens.set(parts[0],parts[1]);
+            //graph_tokens.push({token:parts[0],cnt:parts[1]});
         }
     });
 

@@ -176,7 +176,7 @@ myEmitter.on('one_post_done', () => {
            /*向track master通知任務已完成*/
            var mission_status='done';
            track_tool.missionReport(master_ip,master_port,master_name,master_version,access_token,mission_status,request_timeout,master_timeout_again,(flag,msg)=>{
-               if(flag=='ok'){
+               if(flag=='ok'&&sg&&mag['data']&&msg['status']=='ok'){
                }
                else{
                    console.log('['+flag+'] '+msg);
@@ -237,7 +237,8 @@ else{
                 *  3. 將從master那得來的設定檔和任務儲存到temp_pool裡，若有重新認證的情況時再將新的覆蓋回去
                 */
                 track_tool.applyCrawler(serverport,master_ip,master_port,master_name,master_version,invite_token,request_timeout,master_timeout_again,(flag,msg)=>{
-                    if(flag=='ok'){
+                    if(flag=='ok'&&sg&&mag['data']&&msg['status']=='ok'){
+                        if(msg&&mag['data']&&)
                         app.use('/'+crawler_name+'/'+crawler_version,crawler);
                         access_token = msg['data']['access_token'];   
                         trackids = msg['data']['mission']['track_posts'];
@@ -256,7 +257,7 @@ else{
                         }
                     }
                     else{
-                        console.log('['+flag+'] '+msg);
+                        console.log('Response:'+flag+' Matser:\n'+JSON.stringify(msg,null,3));
                     }
 
                 });
@@ -293,14 +294,14 @@ else{
                     data['track_pages'].push(post);
                     post=new Object();
                 }
-                console.log(JSON.stringify(data));
+                console.log('Client:'+JSON.stringify(data));
 
                 track_tool.uploadTrackPost(master_ip,master_port,master_name,master_version,access_token,data,request_timeout,master_timeout_again,(flag,msg)=>{
-                    if(flag=='ok'){
+                    if(flag=='ok'&&sg&&mag['data']&&msg['status']=='ok'){
                         console.log(JSON.stringify(msg,null,3));
                         /*測試*/
                         track_tool.applyCrawler(serverport,master_ip,master_port,master_name,master_version,invite_token,request_timeout,master_timeout_again,(flag,msg)=>{
-                            if(flag=='ok'){
+                            if(flag=='ok'&&sg&&mag['data']&&msg['status']=='ok'){
                                 app.use('/'+crawler_name+'/'+crawler_version,crawler);
                                 access_token = msg['data']['access_token'];   
                                 trackids = msg['data']['mission']['track_posts'];

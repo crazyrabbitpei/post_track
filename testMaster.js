@@ -2,19 +2,6 @@
 var fs = require('graceful-fs');
 var track_tool = require('./tool/track_tool.js');
 var master_tool = require('./tool/master_tool.js');
-var crawler_setting = JSON.parse(fs.readFileSync('./service/crawler_setting.json'));
-
-var master_ip = crawler_setting['master_ip'];
-var master_port = crawler_setting['master_port'];
-var master_name = crawler_setting['master_name'];
-var master_version = crawler_setting['master_version'];
-var master_timeout_again = crawler_setting['master_timeout_again'];
-var invite_token = crawler_setting['invite_token'];
-var request_timeout = crawler_setting['request_timeout'];
-
-var mission = crawler_setting['mission'];
-
-var access_token = mission['access_token'];
 
 var test = new master_tool.Track();
 var tokens=[];
@@ -26,17 +13,17 @@ var schedule3='demo3';
 var schedule4='demo4';
 var schedule5='demo5';
 
-//produceIds('test2',{rec_num:8});
+produceIds('test2',{rec_num:8});
+produceCrawlers({rec_num:2});
 //produceIds('10/03',{rec_num:8});
-//produceCrawlers({rec_num:2});
-setTimeout(function(){
-    console.log('List Crawlers:'+JSON.stringify(test.listCrawlers(),null,2));
-    console.log('List Pools:'+JSON.stringify(test.listPools(),null,2));
-    console.log('List Schedules:'+JSON.stringify(test.listSchedules(),null,2));
-},25*1000);
 
+console.log('List Crawlers:'+JSON.stringify(test.listCrawlers(),null,2));
+console.log('List Pools:'+JSON.stringify(test.listPools(),null,2));
+console.log('List Schedules:'+JSON.stringify(test.listSchedules(),null,2));
+/*
 randomId({time:5,rec_num:4});
 randomCrawler({time:7,rec_num:3});
+*/
 /*
 
 randomId({time:20,rec_num:8});
