@@ -29,7 +29,8 @@ class Track{
             info['created_time']=crawlers[i]['created_time'];
             info['active_time']=crawlers[i]['active_time'];
             this.crawlersInfo.set(crawlers[i]['token'],info);
-            this.crawlerSatus.set(crawlers[i]['token'],crawlers[i]['status']);
+            this.missionStatus(crawlers[i]['token'],crawlers[i]['status']);
+            //this.crawlerSatus.set(crawlers[i]['token'],crawlers[i]['status']);
         }
         
         this.schedulesInfo=new Map();
@@ -233,7 +234,7 @@ class Track{
     }
     /*TODO*/
     missionStatus(token,mission_status){
-        if(!token||!mission_status||!this.crawlerSatus.has(token)){
+        if(!token||!mission_status||!this.crawlersInfo.has(token)){
             return false;
         }
         this.crawlerSatus.set(token,mission_status);
@@ -373,7 +374,8 @@ class Track{
         info['created_time']=dateFormat(new Date(),'yyyy/mm/dd HH:MM:ss');
         info['active_time']=dateFormat(new Date(),'yyyy/mm/dd HH:MM:ss');
         this.crawlersInfo.set(token,info);
-        this.crawlerSatus.set(token,'init');
+        //this.crawlerSatus.set(token,'init');
+        this.missionStatus(token,'init');
         return true;
     }
 
@@ -506,11 +508,13 @@ class Track{
                 else{
                     track_pool = info['track_pool_name'];
                 }
-                //console.log('Start ['+name+'], time:'+info['track_time']+' pool:'+track_pool);
+                console.log('Start ['+name+'], time:'+info['track_time']+' pool:'+track_pool);
                 var crawler,ids;
                 /*行程設定時間一到，先檢查有無可指派任務的crawler，再檢查有無id可發出。*/
                 while((crawler = _self.findMissionCrawler())&&(ids = _self.shiftTrackId(track_pool,info['track_num']))){
-                    _self.crawlerSatus.set(crawler['token'],'ing');
+                    //_self.crawlerSatus.set(crawler['token'],'ing');
+                    /*若任務指派成功，則記錄該crawler被指派任務的時間，只要任務完成，就會改回'DONE'，否則就會一直是時間，可用來觀察crawler是否停擺*/
+                    _self.missionStatus(crawler['token'],new Date());
                     /*TODO:tetsing*/
                     _self.recordPostSendTime(ids);
 
@@ -688,6 +692,7 @@ class Track{
                         return false;
                     }
                     else{
+
                         return true;
                     }
                 }

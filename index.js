@@ -127,9 +127,23 @@ myEmitter.on('nextreaction', (link) => {
         }
     });
 });
+//TODO
 myEmitter.on('one_post_done', () => {
     var i,cnt=0;
-    var reac_type = Object.keys(final_result.reactions);
+    var err_flag=0;
+    try{
+        var reac_type = Object.keys(final_result.reactions);
+    }
+    catch(e){
+        err_flag=1;
+    }
+    if(err_flag==0){
+        
+    }
+    else{
+
+    }
+
     console.log('==ok==ok==['+current_post_id+']==ok==ok==')
     //console.log('--All reactions--');
     for(i=0;i<reac_type.length;i++){
@@ -329,6 +343,25 @@ function start(track_id){
     track_tool.trackPost(request_timeout,mission,track_id,(flag,msg)=>{
         if(flag=='err'){
             console.log('[trackPost err] '+msg);
+            myEmitter.emit('one_post_done');
+            /*
+            track_tool.listTrack({master_ip,master_port,master_name,master_version,access_token:mission['token']['access_token'],request_timeout,master_timeout_again},(flag,msg)=>{
+                console.log('listTrack:\n'+JSON.stringify(msg,null,3));
+                fs.writeFile('./result4',JSON.stringify(msg,null,3),()=>{});
+            });
+            */
+           /*
+            var mission_status='done';
+            track_tool.missionReport({master_ip,master_port,master_name,master_version,access_token:mission['token']['access_token'],mission_status,request_timeout,master_timeout_again},(flag,msg)=>{
+                if(flag=='ok'&&msg&&msg['data']&&msg['status']=='ok'){
+                    console.log('missionReport success:'+JSON.stringify(msg,null,2));
+
+                }
+                else{
+                    console.log('['+flag+'] '+msg);
+                }
+            });
+            */
         }
         else{
             final_result = new track_tool.initContent(mission['info']['fields'],msg);
