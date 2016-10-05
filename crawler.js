@@ -9,6 +9,9 @@ var crawler_setting = JSON.parse(fs.readFileSync('./service/crawler_setting.json
 
 crawler.post('/mission',function(req,res){
     var control_token = req.body['control_token'];
+    //console.log('Crawler receive control_token:'+control_token);
+    //console.log('Crawler receive mission:\n'+JSON.stringify(req.body['mission']))
+
     var mission = req.body['mission'];
     if(control_token!=crawler_setting['control_token']){
         track_tool.sendResponse(res,'token_err','','');
@@ -16,18 +19,15 @@ crawler.post('/mission',function(req,res){
     else{
         console.log('Get from master:'+JSON.stringify(mission));
         track_tool.sendResponse(res,'ok',200,'Roger!');
-        var temp = mission['track_posts'].shift();
-
-        if(typeof temp!=='undefined'){
-            var i;
-            var current_post_id = temp;
-            for(i=0;i<mission['track_posts'].length;i++){
-                start.harmony(mission,mission['track_posts'][i]);
+        var current_post_id;
+        if((current_post_id = mission['track_posts'].shift())){
+            for(let i=0;i<mission['track_posts'].length;i++){
+                start.addTrackId(mission['track_posts'][i]);
             }
+            start.updateMission(mission);
             start.start(current_post_id);
-
+            return;
         }
-
     }
 });
 module.exports = crawler;

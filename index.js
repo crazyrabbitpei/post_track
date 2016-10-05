@@ -18,8 +18,8 @@ var server = http.createServer(app);
 
 
 var crawler_setting = JSON.parse(fs.readFileSync('./service/crawler_setting.json'));
-var serverip = crawler_setting['serverip'];
-var serverport = crawler_setting['serverport'];
+var crawler_ip = crawler_setting['crawler_ip'];
+var crawler_port = crawler_setting['crawler_port'];
 var crawler_name = crawler_setting['crawler_name'];
 var crawler_version = crawler_setting['crawler_version'];
 
@@ -31,10 +31,14 @@ var master_timeout_again = crawler_setting['master_timeout_again'];
 var invite_token = crawler_setting['invite_token'];
 var request_timeout = crawler_setting['request_timeout'];
 
-var mission = crawler_setting['mission'];
+//var mission = crawler_setting['mission'];
 
-var access_token = '';
-var trackids=[];
+const _version=crawler_setting['mission']['status'];
+
+var mission={};//存放Master給予的追蹤設定檔
+mission['token']={};
+mission['info']={};
+var trackids=[];//存放待追蹤的post id
 var current_post_id='';//目前正在抓取的id
 
 var all_fetch=3;//有兩個資訊有下一頁問題：reactions, comments，要等到這兩個都抓完後程式才算完成
@@ -53,7 +57,7 @@ myEmitter.on('nextcomment', (link) => {
         }
         else{
             var i;
-            var next_result = new track_tool.parseComment(mission['fields'],msg);
+            var next_result = new track_tool.parseComment(mission['info']['fields'],msg);
             for(i=0;i<next_result.comments.length;i++){
                 final_result.comments.push(next_result.comments[i]);
             }
@@ -77,7 +81,7 @@ myEmitter.on('nextsharedpost', (link) => {
             console.log('[fetchNextPage err] '+msg);
         }
         else{
-            var next_result = new track_tool.parseSharedpost(mission['fields'],msg);
+            var next_result = new track_tool.parseSharedpost(mission['info']['fields'],msg);
             var i;
             for(i=0;i<next_result.sharedposts.length;i++){
                 final_result.sharedposts.push(next_result.sharedposts[i]);
@@ -102,7 +106,7 @@ myEmitter.on('nextreaction', (link) => {
             console.log('[fetchNextPage err] '+msg);
         }
         else{
-            var next_result = new track_tool.parseReaction(mission['fields'],msg);
+            var next_result = new track_tool.parseReaction(mission['info']['fields'],msg);
             var i;
             var reac_type = Object.keys(next_result.reactions);
             for(i=0;i<reac_type.length;i++){
@@ -157,7 +161,7 @@ myEmitter.on('one_post_done', () => {
    processing=0;//該貼文追蹤完畢，可以繼續接收下個任務
    /*開始搜集下一個*/
    var temp = trackids.shift();
-   if(mission['status']=='test'){
+   if(_version=='test'){
        if(typeof temp!=='undefined'){
            current_post_id = temp['id'];
            start(current_post_id);
@@ -166,7 +170,7 @@ myEmitter.on('one_post_done', () => {
            console.log('All post id have been tracked.');
        }
    }
-   else if(mission['status']=='test1'){
+   else if(_version=='test1'||_version=='test2'){
        if(typeof temp!=='undefined'){
            current_post_id = temp;
            start(current_post_id);
@@ -175,8 +179,9 @@ myEmitter.on('one_post_done', () => {
            console.log('All post id have been tracked.');
            /*向track master通知任務已完成*/
            var mission_status='done';
-           track_tool.missionReport(master_ip,master_port,master_name,master_version,access_token,mission_status,request_timeout,master_timeout_again,(flag,msg)=>{
-               if(flag=='ok'&&sg&&mag['data']&&msg['status']=='ok'){
+           track_tool.missionReport({master_ip,master_port,master_name,master_version,access_token:mission['token']['access_token'],mission_status,request_timeout,master_timeout_again},(flag,msg)=>{
+               if(flag=='ok'&&msg&&msg['data']&&msg['status']=='ok'){
+                   console.log('missionReport success:'+JSON.stringify(msg,null,2));
                }
                else{
                    console.log('['+flag+'] '+msg);
@@ -185,7 +190,7 @@ myEmitter.on('one_post_done', () => {
        }    
    }
    else{
-       console.log('Other mission:\n'+JSON.stringify(mission,null,3));
+       console.log('Other mission['+_version+']:\n'+JSON.stringify(mission,null,3));
    }
 });
 /**
@@ -209,10 +214,10 @@ myEmitter.on('one_post_done', () => {
  *      - 已追蹤數量and正在追蹤的進度，ex: 3/10
  * 
 **/
-if(mission['status']=='test'){
+if(_version=='test'){
     var track_posts;
     invite_token='test';
-    track_posts = mission['track_posts'];
+    track_posts = crawler_setting['mission']['track_posts'];
 
     trackids = track_posts;
     var temp = trackids.shift();
@@ -226,48 +231,32 @@ else{
     app.use(bodyParser.urlencoded({ extended: true  }));
 
     //程式啟動，向tracking master報告
-    server.listen(serverport,serverip,function(){
-            console.log("[Server start] ["+new Date()+"] http work at "+serverip+":"+serverport);
-            if(mission['status']=='test1'){
+    server.listen(crawler_port,crawler_ip,function(){
+            console.log("[Server start] ["+new Date()+"] http work at "+crawler_ip+":"+crawler_port);
+            if(_version=='test1'){
                 /*client同時扮演master，沒有這行的話，就是一個完整的post track crawler*/
-                app.use('/'+master_name+'/'+master_version,master);
+                //app.use('/'+master_name+'/'+master_version,master);
                 /* TODO
                 *  1. 要將搜集到的訊息上傳至資料中心存放
                 *  2. 當程式停止時，主動向master發送停止訊息
                 *  3. 將從master那得來的設定檔和任務儲存到temp_pool裡，若有重新認證的情況時再將新的覆蓋回去
                 */
-                track_tool.applyCrawler(serverport,master_ip,master_port,master_name,master_version,invite_token,request_timeout,master_timeout_again,(flag,msg)=>{
-                    if(flag=='ok'&&sg&&mag['data']&&msg['status']=='ok'){
-                        if(msg&&mag['data']&&)
+                track_tool.applyCrawler({crawler_port,master_ip,master_port,master_name,master_version,invite_token,request_timeout,master_timeout_again},(flag,msg)=>{
+                    if(flag=='ok'&&msg&&msg['data']&&msg['status']=='ok'){
                         app.use('/'+crawler_name+'/'+crawler_version,crawler);
-                        access_token = msg['data']['access_token'];   
-                        trackids = msg['data']['mission']['track_posts'];
-                        mission = msg['data']['mission'];
-                        mission['status']='test1';
-
-                        var temp = trackids.shift();
-                        console.log('id:'+temp);
-
-                        if(typeof temp!=='undefined'){
-                            current_post_id = temp;
-                            start(current_post_id);
-                        }
-                        else{
-                            console.log('Waiting for mission...');
-                        }
+                        mission['token']['graph_token']=msg['data']['graph_token'];
+                        mission['token']['access_token']=msg['data']['access_token'];
                     }
                     else{
-                        console.log('Response:'+flag+' Matser:\n'+JSON.stringify(msg,null,3));
+                        console.log('['+flag+'] '+msg);
                     }
 
                 });
-
             }
             /*此模式為了要測試master的manageTracking API，需要準備一個偽data crawler來抓取fb資料，並呼叫manageTracking API來將抓取到的post id, created_time塞給track master做儲存*/
-            else if(mission['status']=='test2'){
-                access_token=mission['access_token'];
+            else if(_version=='test2'){
+                mission['token']['access_token']=crawler_setting['mission']['access_token'];
                 app.use('/'+master_name+'/'+master_version,master);
-                app.enable('trust proxy');
 
                 /*準備測試資料*/
                 var data ={
@@ -290,26 +279,26 @@ else{
                     track_after = Math.floor(Math.random()*(track_max-track_min+1)+track_min);
                     post['id']=Math.floor(Math.random()*(id_max-id_min+1)+id_min);
                     post['created_time']=new Date(now.setDate(after));
+                    post['pool_name']='test1';
                     post['track_time']=new Date(now.setDate(now.getDate()+track_after));
                     data['track_pages'].push(post);
                     post=new Object();
                 }
                 console.log('Client:'+JSON.stringify(data));
 
-                track_tool.uploadTrackPost(master_ip,master_port,master_name,master_version,access_token,data,request_timeout,master_timeout_again,(flag,msg)=>{
-                    if(flag=='ok'&&sg&&mag['data']&&msg['status']=='ok'){
+                track_tool.uploadTrackPost({master_ip,master_port,master_name,master_version,access_token:mission['token']['access_token'],data,request_timeout,master_timeout_again},(flag,msg)=>{
+                    if(flag=='ok'&&msg&&msg['data']&&msg['status']=='ok'){
                         console.log(JSON.stringify(msg,null,3));
-                        /*測試*/
-                        track_tool.applyCrawler(serverport,master_ip,master_port,master_name,master_version,invite_token,request_timeout,master_timeout_again,(flag,msg)=>{
-                            if(flag=='ok'&&sg&&mag['data']&&msg['status']=='ok'){
+                        /*apply成功後會得到 1.access_token 2.graph token*/
+                        track_tool.applyCrawler({crawler_port,master_ip,master_port,master_name,master_version,invite_token,request_timeout,master_timeout_again},(flag,msg)=>{
+                            if(flag=='ok'&&msg&&msg['data']&&msg['status']=='ok'){
                                 app.use('/'+crawler_name+'/'+crawler_version,crawler);
-                                access_token = msg['data']['access_token'];   
-                                trackids = msg['data']['mission']['track_posts'];
-                                mission = msg['data']['mission'];
-                                mission['status']='test1';
-
-                                var temp = trackids.shift();
-                                console.log('id:'+temp);
+                                mission['token']['graph_token']=msg['data']['graph_token'];
+                                mission['token']['access_token']=msg['data']['access_token'];
+                                console.log('Apply success:'+JSON.stringify(msg,null,3));
+                                track_tool.listTrack({master_ip,master_port,master_name,master_version,access_token:mission['token']['access_token'],request_timeout,master_timeout_again},(flag,msg)=>{
+                                    console.log('listTrack:\n'+JSON.stringify(msg,null,3));
+                                });
                             }
                             else{
                                 console.log('['+flag+'] '+msg);
@@ -342,7 +331,7 @@ function start(track_id){
             console.log('[trackPost err] '+msg);
         }
         else{
-            final_result = new track_tool.initContent(mission['fields'],msg);
+            final_result = new track_tool.initContent(mission['info']['fields'],msg);
 
             /*搜集下一頁的comments*/
             if(final_result.next_comments!=null){
@@ -384,12 +373,15 @@ function start(track_id){
         }
     });
 }
-function harmony(job,ids){
-    console.log('[harmony] new ids:'+ids);
+function addTrackId(ids){
     trackids.push(ids);
-    console.log('Total misison:'+trackids);
-    mission = job;
-    mission['status']='test1';
+    console.log('[harmony] new ids:'+ids);
+    console.log('Total post id:'+trackids);
+}
+function updateMission(assign_mission){
+    mission['info']=assign_mission;
+    console.log('[harmony] mission'+JSON.stringify(mission));
 }
 exports.start=start;
-exports.harmony=harmony;
+exports.addTrackId=addTrackId;
+exports.updateMission=updateMission;

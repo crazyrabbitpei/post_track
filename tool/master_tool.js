@@ -2,6 +2,7 @@
 var fs = require('fs');
 var CronJob = require('cron').CronJob;
 var dateFormat = require('dateformat');
+var request = require('request');
 
 var master_setting = JSON.parse(fs.readFileSync('./service/master_setting.json'));
 
@@ -111,7 +112,7 @@ class Track{
             */
             for (var [key, value] of this.crawlersInfo.entries()) {
                 let status = this.crawlerSatus.get(key);
-                results.push({token:key,info:value,status:status});
+                results.push({name:key,info:value,status:status});
                 i++;
                 if(i>master_setting.list_size){break;}
             }
@@ -144,8 +145,8 @@ class Track{
     *       *若算出的追蹤日期大於今天日期，則列到'past' pool
     *
     * */
-    insertIdsToPool(post_id,...args){
-    //insertIdsToPool(post_id,{pool_name,created_time}){
+    //insertIdsToPool(post_id,...args){
+    insertIdsToPool(post_id,{pool_name,created_time}={}){
 
         if(!post_id){
             return false;
@@ -157,14 +158,15 @@ class Track{
         }
         else{
             this.post_idInfo.set(post_id,0);
-            console.log('Set:'+post_id+' '+this.post_idInfo.get(post_id));
         }
+        console.log('Set:'+post_id+' '+this.post_idInfo.get(post_id)+' pool:'+pool_name);
 
-
-        var name,pool_name,created_time;
+        var name;
+        /*
         if(args[0]){
             pool_name=args[0]['pool_name'],created_time=args[0]['created_time'];
         }
+        */
 
         if(pool_name){
             if(!this.checkPoolName(pool_name)){
@@ -195,9 +197,9 @@ class Track{
         else{
             created_time=deafultDate();
         }
-        
+        /*如果沒有指定的pool name，則用日期來解析出pool_name，例：2016 09/11 09:11:22 => poolname: 09/11*/
         if(!name){
-            if(!(name = this.parsePoolName(created_time))){
+            if(!(name = this.parsePoolName(created_time))){//如果created_time格是不是日期，則回傳原本的created_time值，例：I'm not a date=> poolname:I'm not a date
                 return false;
             }
         }
@@ -269,6 +271,7 @@ class Track{
         return true;
     }
     getPool(pool_name){
+        var result={};
         if(!pool_name){
             return false;
         }
@@ -276,7 +279,8 @@ class Track{
             return false;
         }
 
-        return this.trackPools[pool_name];
+        result={name:pool_name,info:this.trackPools[pool_name]};
+        return result;
     }
     deletePool(pool_name){
         if(!pool_name){
@@ -333,7 +337,8 @@ class Track{
     /*依照給予的發文日期來賦予追蹤pool_name*/
     parsePoolName(created_time){
         if(isNaN(new Date(created_time).getTime())){
-            return false;
+            return created_time;
+            //return false;
         }
         created_time=new Date(created_time);
         var after = created_time.getDate()+master_setting['track_interval'];
@@ -409,15 +414,18 @@ class Track{
 
         return true;
     }
-        
+    /*TODO:testing*/
     getCrawler(token){
+        var result={};
         if(!token){
             return false;
         }
         else if(!this.crawlersInfo.has(token)){
             return false;
         }
-        return this.crawlersInfo.get(token);
+        result={name:token,info:this.crawlersInfo.get(token),status:this.crawlerSatus.get(token)};
+        return result; 
+        //return this.crawlersInfo.get(token);
         
     }
 
@@ -498,7 +506,7 @@ class Track{
                 else{
                     track_pool = info['track_pool_name'];
                 }
-                console.log('Start ['+name+'], time:'+info['track_time']+' pool:'+track_pool);
+                //console.log('Start ['+name+'], time:'+info['track_time']+' pool:'+track_pool);
                 var crawler,ids;
                 /*行程設定時間一到，先檢查有無可指派任務的crawler，再檢查有無id可發出。*/
                 while((crawler = _self.findMissionCrawler())&&(ids = _self.shiftTrackId(track_pool,info['track_num']))){
@@ -578,14 +586,18 @@ class Track{
         this.schedulesInfo.delete(schedule_name);
         return true;
     }
+    /*TODO:testing*/
     getSchedule(schedule_name){
+        var result={};
         if(!schedule_name){
             return false;
         }
         else if(!this.schedulesInfo.has(schedule_name)){
             return false;
         }
-        return this.schedulesInfo.get(schedule_name);
+        result={name:result,info:this.schedulesInfo.get(schedule_name)};
+        return result; 
+        //return this.schedulesInfo.get(schedule_name);
     }
 
     updateSchedule(schedule_name,{new_schedule_name,track_time,track_pool_name,description}={}){
@@ -645,8 +657,8 @@ class Track{
         this.mission['track_posts'] = track_ids.map(function(x){
             return x.post_id;
         });
-        console.log(JSON.stringify(this.mission,null,3));
-        return;
+        //console.log('Master send:'+JSON.stringify(this.mission,null,3));
+        //return;
         request({
             method:'POST',
             json:true,
@@ -655,7 +667,7 @@ class Track{
             },
             body:{
                 control_token:control_token,
-                mission:mission
+                mission:this.mission
             },
             url:'http://'+ip+':'+port+'/'+crawler_name+'/'+crawler_version+'/mission',
             timeout:master_setting['request_timeout']*1000
@@ -725,6 +737,26 @@ function deafultDate(created_time){
     return created_time?dateFormat(created_time,'yyyy/mm/dd HH:MM:ss'):dateFormat(new Date(),'yyyy/mm/dd HH:MM:ss');   
 }
 
+function writeLog(type,msg){
+    var now = new Date();
+    var date = dateFormat(now,'yyyymmdd');
+    var filename=master_setting['log_dir']+'/';
+    if(type=='err'){
+        filename += date+master_setting['err_filename'];
+    }
+    else if(type=='process'){
+        filename += date+master_setting['process_filename'];
+    }
+    else{
+        filename += date+master_setting['other_filename'];
+    }
+
+    fs.appendFile(filename,'['+now+'] Type:'+type+' Message:'+msg+'\n',(err)=>{
+        if(err){
+            console.log('Master [writeLog] Error:'+err);
+        }
+    });
+}
 
 /*
 function trackJob(schedule,mode){

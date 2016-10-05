@@ -7,7 +7,9 @@ var querystring = require('querystring');
 var reactions;
 var crawler_setting = JSON.parse(fs.readFileSync('./service/crawler_setting.json'));
 
-function applyCrawler(crawler_port,ip,port,master_name,master_version,token,timeout,retryt,fin){
+//function applyCrawler(crawler_port,ip,port,master_name,master_version,token,timeout,retryt,fin){
+function applyCrawler({crawler_port,master_ip,master_port,master_name,master_version,invite_token,request_timeout,master_timeout_again},fin){
+    console.log('Apply:'+'http://'+master_ip+':'+master_port+'/'+master_name+'/'+master_version+'/apply');
     request({
         method:'POST',
         json:true,
@@ -15,11 +17,11 @@ function applyCrawler(crawler_port,ip,port,master_name,master_version,token,time
             "content-type":"application/json"
         },
         body:{
-            access_token:token,
+            access_token:invite_token,
             port:crawler_port
         },
-        url:'http://'+ip+':'+port+'/'+master_name+'/'+master_version,
-        timeout:timeout*1000
+        url:'http://'+master_ip+':'+master_port+'/'+master_name+'/'+master_version+'/apply',
+        timeout:request_timeout*1000
     },(err,res,body)=>{
         if(!err&&(res.statusCode>=200&&res.statusCode<300)){
             var err_msg='';
@@ -45,8 +47,8 @@ function applyCrawler(crawler_port,ip,port,master_name,master_version,token,time
             if(err){
                 if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
                     setTimeout(function(){
-                        applyCrawler(ip,port,master_name,master_version,token,timeout,retryt,fin)
-                    },retryt*1000);
+                        applyCrawler({crawler_port,master_ip,master_port,master_name,master_version,invite_token,request_timeout,master_timeout_again},fin);
+                    },master_timeout_again*1000);
                 }
                 else{
                     writeLog('err','applyCrawler, '+err);
@@ -56,8 +58,8 @@ function applyCrawler(crawler_port,ip,port,master_name,master_version,token,time
             else{
                 if(res.statusCode>=500&&res.statusCode<600){
                     setTimeout(function(){
-                        applyCrawler(ip,port,master_name,master_version,token,timeout,retryt,fin)
-                    },retryt*1000);
+                        applyCrawler({crawler_port,master_ip,master_port,master_name,master_version,invite_token,request_timeout,master_timeout_again},fin);
+                    },master_timeout_again*1000);
                 }
                 else{
                     writeLog('err','applyCrawler, '+res['statusCode']+', '+body['err']);
@@ -67,8 +69,9 @@ function applyCrawler(crawler_port,ip,port,master_name,master_version,token,time
        }
     });
 }
-function uploadTrackPost(ip,port,master_name,master_version,token,data,timeout,retryt,fin){
-    console.log('http://'+ip+':'+port+'/'+master_name+'/'+master_version+'/manageTracking');
+//function uploadTrackPost(ip,port,master_name,master_version,token,data,timeout,retryt,fin){
+function uploadTrackPost({master_ip,master_port,master_name,master_version,access_token,data,request_timeout,master_timeout_again},fin){
+    console.log('http://'+master_ip+':'+master_port+'/'+master_name+'/'+master_version+'/post_id');
     request({
         method:'POST',
         json:true,
@@ -76,11 +79,11 @@ function uploadTrackPost(ip,port,master_name,master_version,token,data,timeout,r
             "content-type":"application/json"
         },
         body:{
-            access_token:token,
+            access_token:access_token,
             data:data
         },
-        url:'http://'+ip+':'+port+'/'+master_name+'/'+master_version+'/manageTracking',
-        timeout:timeout*1000
+        url:'http://'+master_ip+':'+master_port+'/'+master_name+'/'+master_version+'/post_id',
+        timeout:request_timeout*1000
     },(err,res,body)=>{
         if(!err&&(res.statusCode>=200&&res.statusCode<300)){
             var err_msg='';
@@ -106,8 +109,8 @@ function uploadTrackPost(ip,port,master_name,master_version,token,data,timeout,r
             if(err){
                 if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
                     setTimeout(function(){
-                        uploadTrackPost(ip,port,master_name,master_version,token,data,timeout,retryt,fin);
-                    },retryt*1000);
+                        uploadTrackPost({master_ip,master_port,master_name,master_version,access_token,data,request_timeout,master_timeout_again},fin);
+                    },master_timeout_again*1000);
                 }
                 else{
                     writeLog('err','uploadTrackPost, '+err);
@@ -117,8 +120,8 @@ function uploadTrackPost(ip,port,master_name,master_version,token,data,timeout,r
             else{
                 if(res.statusCode>=500&&res.statusCode<600){
                     setTimeout(function(){
-                        uploadTrackPost(ip,port,master_name,master_version,token,data,timeout,retryt,fin);
-                    },retryt*1000);
+                        uploadTrackPost({master_ip,master_port,master_name,master_version,access_token,data,request_timeout,master_timeout_again},fin);
+                    },master_timeout_again*1000);
                 }
                 else{
                     writeLog('err','uploadTrackPost, '+res['statusCode']+', '+body['err']);
@@ -128,17 +131,17 @@ function uploadTrackPost(ip,port,master_name,master_version,token,data,timeout,r
        }
     });
 }
-function listTrack(ip,port,master_name,master_version,token,date,timeout,retryt,fin){
-    var query = querystring.stringify(date);
-    console.log('http://'+ip+':'+port+'/'+master_name+'/'+master_version+'/manageTracking?'+query)
+//function listTrack(ip,port,master_name,master_version,token,date,timeout,retryt,fin){
+function listTrack({master_ip,master_port,master_name,master_version,access_token,request_timeout,master_timeout_again},fin){
+    console.log('http://'+master_ip+':'+master_port+'/'+master_name+'/'+master_version+'/status')
     request({
         method:'GET',
         json:true,
         body:{
-            access_token:token
+            access_token:access_token
         },
-        url:'http://'+ip+':'+port+'/'+master_name+'/'+master_version+'/manageTracking?'+query,
-        timeout:timeout*1000
+        url:'http://'+master_ip+':'+master_port+'/'+master_name+'/'+master_version+'/status',
+        timeout:master_timeout_again*1000
     },(err,res,body)=>{
         if(!err&&(res.statusCode>=200&&res.statusCode<300)){
             var err_msg='';
@@ -164,29 +167,30 @@ function listTrack(ip,port,master_name,master_version,token,date,timeout,retryt,
             if(err){
                 if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
                     setTimeout(function(){
-                        uploadTrackPost(ip,port,master_name,master_version,token,date,timeout,retryt,fin);
-                    },retryt*1000);
+                        listTrack(ip,port,master_name,master_version,token,date,timeout,retryt,fin);
+                    },master_timeout_again*1000);
                 }
                 else{
-                    writeLog('err','uploadTrackPost, '+err);
-                    fin('err','uploadTrackPost, '+err);
+                    writeLog('err','listTrack, '+err);
+                    fin('err','listTrack, '+err);
                 }
             }
             else{
                 if(res.statusCode>=500&&res.statusCode<600){
                     setTimeout(function(){
-                        uploadTrackPost(ip,port,master_name,master_version,token,date,timeout,retryt,fin);
-                    },retryt*1000);
+                        listTrack(ip,port,master_name,master_version,token,date,timeout,retryt,fin);
+                    },master_timeout_again*1000);
                 }
                 else{
-                    writeLog('err','uploadTrackPost, '+res['statusCode']+', '+body['err']);
-                    fin('err','uploadTrackPost, '+res['statusCode']+', '+body['err']);
+                    writeLog('err','listTrack, '+res['statusCode']+', '+body['err']);
+                    fin('err','listTrack, '+res['statusCode']+', '+body['err']);
                 }
             }
        }
     });
 }
-function missionReport(ip,port,master_name,master_version,token,mission_status,timeout,retryt,fin){
+//function missionReport(ip,port,master_name,master_version,token,mission_status,timeout,retryt,fin){
+function missionReport({master_ip,master_port,master_name,master_version,access_token,mission_status,request_timeout,master_timeout_again},fin){
     request({
         method:'POST',
         json:true,
@@ -194,11 +198,11 @@ function missionReport(ip,port,master_name,master_version,token,mission_status,t
             "content-type":"application/json"
         },
         body:{
-            access_token:token,
+            access_token:access_token,
             mission_status:mission_status
         },
-        url:'http://'+ip+':'+port+'/'+master_name+'/'+master_version+'/mission_status',
-        timeout:timeout*1000
+        url:'http://'+master_ip+':'+master_port+'/'+master_name+'/'+master_version+'/mission_report',
+        timeout:request_timeout*1000
     },(err,res,body)=>{
         if(!err&&(res.statusCode>=200&&res.statusCode<300)){
             var err_msg='';
@@ -228,7 +232,7 @@ function missionReport(ip,port,master_name,master_version,token,mission_status,t
                 if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
                     setTimeout(function(){
                         missionReport(ip,port,master_name,master_version,token,timeout,retryt,fin)
-                    },retryt*1000);
+                    },master_timeout_again*1000);
                 }
                 else{
                     writeLog('err','missionReport, '+err);
@@ -239,7 +243,7 @@ function missionReport(ip,port,master_name,master_version,token,mission_status,t
                 if(res.statusCode>=500&&res.statusCode<600){
                     setTimeout(function(){
                         missionReport(ip,port,master_name,master_version,token,timeout,retryt,fin)
-                    },retryt*1000);
+                    },master_timeout_again*1000);
                 }
                 else{
                     writeLog('err','missionReport, '+res['statusCode']+', '+body['err']);
@@ -250,8 +254,10 @@ function missionReport(ip,port,master_name,master_version,token,mission_status,t
     });
 }
 function trackPost(timeout,mission,post_id,fin){
-    var site = mission['site']+mission['graph_version']+'/'+post_id+'?fields='+mission['fields']+'&access_token='+mission['graph_token']+'&limit='+mission['limit'];
+    console.log('Mission:\n'+JSON.stringify(mission,null,2));
+    var site = mission['info']['site']+mission['info']['graph_version']+'/'+post_id+'?fields='+mission['info']['fields']+'&access_token='+mission['token']['graph_token']+'&limit='+mission['info']['limit'];
     //console.log('\nRequest:'+site);
+    //return;
     request({
         url:site,
         timeout:timeout*1000
@@ -282,7 +288,7 @@ function trackPost(timeout,mission,post_id,fin){
                     console.log('Retry [trackPost]:'+err.code);
                     setTimeout(function(){
                         trackPost(site,timeout);
-                    },mission['graph_timeout_again']*1000);
+                    },mission['info']['graph_timeout_again']*1000);
                 }
                 else{
                     writeLog('err','trackPost, '+err);
@@ -294,7 +300,7 @@ function trackPost(timeout,mission,post_id,fin){
                     console.log('Retry [trackPost]:'+res.statusCode);
                     setTimeout(function(){
                         trackPost(site,timeout);
-                    },mission['graph_timeout_again']*1000);
+                    },mission['info']['graph_timeout_again']*1000);
                 }
                 else{
                     writeLog('err','trackPost, '+res['statusCode']+', '+res['body']);
@@ -751,8 +757,8 @@ function fetchNextPage(timeout,mission,site,fin){
                 console.log('err:'+err);
                 if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
                     setTimeout(function(){
-                        fetchNextPage(site,timeout);
-                    },mission['graph_timeout_again']*1000);
+                        fetchNextPage(timeout,mission,site,fin);
+                    },mission['info']['graph_timeout_again']*1000);
                 }
                 else{
                     writeLog('err','fetchNextPage, '+err);
@@ -762,8 +768,8 @@ function fetchNextPage(timeout,mission,site,fin){
             else{
                 if(res.statusCode>=500&&res.statusCode<600){
                     setTimeout(function(){
-                        fetchNextPage(site,timeout);
-                    },mission['graph_timeout_again']*1000);
+                        fetchNextPage(timeout,mission,site,fin);
+                    },mission['info']['graph_timeout_again']*1000);
                 }
                 else{
                     writeLog('err','fetchNextPage, '+res['statusCode']+', '+res['body']);
@@ -772,9 +778,6 @@ function fetchNextPage(timeout,mission,site,fin){
             }
         }
     });
-
-}
-function mission(){
 
 }
 function sendResponse(res,type,status_code,msg){
@@ -922,7 +925,6 @@ exports.missionReport=missionReport;
 exports.trackPost=trackPost;
 exports.uploadTrackPost=uploadTrackPost;
 exports.listTrack=listTrack;
-exports.mission=mission;
 exports.initContent=initContent;
 exports.fetchNextPage=fetchNextPage;
 exports.parseComment=parseComment;
