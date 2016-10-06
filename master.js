@@ -40,6 +40,7 @@ loadIds();
 master.use(function(req,res,next){
     var access_token = req.body['access_token'];
     if((!track.getCrawler(access_token)&&req.path!='/apply')||(access_token!=master_setting['invite_token'])&&req.path=='/apply'){
+        console.log('err token ['+access_token+']');
         sendResponse(res,'token_err','','');
         return;
     }
@@ -113,11 +114,18 @@ master.post('/apply',function(req,res){
  *  -需要crawler之token
  *  -回傳該crawler目前有幾個任務正在進行、已完成幾個任務、運行時間、所在ip、名字
  * */
+var test_flag=0;
 master.route('/mission_report')
 .post(function(req,res){
     var access_token = req.body['access_token'];
     var mission_status = req.body['mission_status'];
+    var success_ids=req.body['data']['success'];
+    var fai_ids=req.body['data']['fail'];
+    console.log('Master receive:\n'+JSON.stringify(req.body,null,3));
+
+
     var result;
+
     if(track.missionStatus(access_token,mission_status)){
         result='get token:'+access_token+' get status:'+mission_status;
         sendResponse(res,'ok',200,result);
@@ -125,6 +133,22 @@ master.route('/mission_report')
     else{
         result='Update crawler ['+access_token+'] status fail!';
         sendResponse(res,'fail',200,result);
+    }
+    if(test_flag==0){
+        track.stopSchedules('demo1');
+        //randomId({time:10,rec_num:5});
+        /*
+        setTimeout(function(){
+            track.startSchedules('demo2');
+            track.stopSchedules('demo1');
+        },10*1000);
+        */
+        /*
+        setTimeout(function(){
+            track.deleteSchedule('demo1');
+        },15*1000);
+        */
+        test_flag=1;
     }
 
     return;
@@ -403,5 +427,44 @@ function sendResponse(res,type,status_code,msg){
         result['data']='';
         result['err']=msg;
         res.status(status_code).send(result);
+    }
+}
+function randomId({time=3,rec_num=5}){
+    setTimeout(function(){
+        produceIds('test1',{rec_num:rec_num});
+    },time*1000);
+}
+function produceIds(option='test1',{rec_num=5,id_max=1000000,id_min=200000,date_max=0,date_min=-14,track_min=-30,track_max=30}){
+    var now,plus,after;
+    var track_after;
+    var post=new Object();
+    for(var i=0;i<rec_num;i++){
+        now = new Date();
+        plus = (Math.floor(Math.random()*(date_max-date_min+1)+date_min));
+        after = now.getDate()+plus;
+        track_after = Math.floor(Math.random()*(track_max-track_min+1)+track_min);
+        post['id']=Math.floor(Math.random()*(id_max-id_min+1)+id_min);
+        post['created_time']=new Date(now.setDate(after));
+        after = new Date(now.setDate(now.getDate()+track_after));
+        if(Math.floor(Math.random()*(10-1+1)+1)>5){
+            //post['pool_name']=after.getMonth()+1+'/'+after.getDate();
+            //post['pool_name']='test1';
+        }
+        else{
+            //post['created_time']='2016/09/28 12:00:12';
+        }
+        if(option.indexOf('test')!=-1){
+            post['pool_name']=option;
+        }
+        else{
+            post['created_time']='2016/09/28 16:00:12';
+        }
+        if(!track.insertIdsToPool(post['id'],{pool_name:post['pool_name'],created_time:post['created_time']})){
+            //if(!test.insertIdsToPool(post['id'],{pool_name:post['pool_name'],created_time:post['created_time']})){
+            console.log('Insert id ['+post['id']+'] ['+post['created_time']+']to pool ['+post['pool_name']+'] fail!');
+        }
+        else{
+            console.log('Insert id ['+post['id']+'] ['+post['created_time']+']to pool ['+post['pool_name']+'] success!');
+        }
     }
 }

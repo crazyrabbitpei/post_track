@@ -13,13 +13,13 @@ var schedule3='demo3';
 var schedule4='demo4';
 var schedule5='demo5';
 
-produceIds('test2',{rec_num:8});
-produceCrawlers({rec_num:2});
+//produceIds('test2',{rec_num:8});
+//produceCrawlers({rec_num:2});
 //produceIds('10/03',{rec_num:8});
 
-console.log('List Crawlers:'+JSON.stringify(test.listCrawlers(),null,2));
-console.log('List Pools:'+JSON.stringify(test.listPools(),null,2));
-console.log('List Schedules:'+JSON.stringify(test.listSchedules(),null,2));
+//console.log('List Crawlers:'+JSON.stringify(test.listCrawlers(),null,2));
+//console.log('List Pools:'+JSON.stringify(test.listPools(),null,2));
+//console.log('List Schedules:'+JSON.stringify(test.listSchedules(),null,2));
 /*
 randomId({time:5,rec_num:4});
 randomCrawler({time:7,rec_num:3});
@@ -67,7 +67,7 @@ function produceIds(option='test1',{rec_num=5,id_max=1000000,id_min=200000,date_
             post['created_time']='2016/09/28 16:00:12';
         }
 
-        if(!test.insertIdsToPool(post['id'],{pool_name:post['pool_name'],created_time:post['created_time']})){
+        if(!insertIdsToPool(post['id'],{pool_name:post['pool_name'],created_time:post['created_time']})){
             //if(!test.insertIdsToPool(post['id'],{pool_name:post['pool_name'],created_time:post['created_time']})){
             console.log('Insert id ['+post['id']+'] ['+post['created_time']+']to pool ['+post['pool_name']+'] fail!');
         }
@@ -105,9 +105,10 @@ function randomPool({time=3,rec_num=5}){
 }
 function randomId({time=3,rec_num=5}){
     setTimeout(function(){
-        produceIds('test2',{rec_num:rec_num});
+        produceIds('test1',{rec_num:rec_num});
     },time*1000);
 }
+exports.randomId=randomId;
 function randomCrawler({time=3,rec_num=5}){
     for(let i=0;i<tokens.length;i++){
         if(getInterval(0,1)==0){

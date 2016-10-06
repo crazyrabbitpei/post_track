@@ -189,8 +189,7 @@ function listTrack({master_ip,master_port,master_name,master_version,access_toke
        }
     });
 }
-//function missionReport(ip,port,master_name,master_version,token,mission_status,timeout,retryt,fin){
-function missionReport({master_ip,master_port,master_name,master_version,access_token,mission_status,request_timeout,master_timeout_again},fin){
+function missionReport({data,master_ip,master_port,master_name,master_version,access_token,mission_status,request_timeout,master_timeout_again},fin){
     request({
         method:'POST',
         json:true,
@@ -199,7 +198,8 @@ function missionReport({master_ip,master_port,master_name,master_version,access_
         },
         body:{
             access_token:access_token,
-            mission_status:mission_status
+            mission_status:mission_status,
+            data:data
         },
         url:'http://'+master_ip+':'+master_port+'/'+master_name+'/'+master_version+'/mission_report',
         timeout:request_timeout*1000

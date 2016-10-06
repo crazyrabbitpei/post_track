@@ -31,17 +31,18 @@ var master_timeout_again = crawler_setting['master_timeout_again'];
 var invite_token = crawler_setting['invite_token'];
 var request_timeout = crawler_setting['request_timeout'];
 
-//var mission = crawler_setting['mission'];
-
 const _version=crawler_setting['mission']['status'];
 
 var mission={};//存放Master給予的追蹤設定檔
 mission['token']={};
 mission['info']={};
 var trackids=[];//存放待追蹤的post id
+var success_ids=[];
+var fail_ids=[];
+
 var current_post_id='';//目前正在抓取的id
 
-var all_fetch=3;//有兩個資訊有下一頁問題：reactions, comments，要等到這兩個都抓完後程式才算完成
+var all_fetch=3;//有兩個資訊有下一頁問題：shareposts, reactions, comments，要等到這兩個都抓完後程式才算完成
 var graph_request=0;//計算總共發了多少Graph api;
 var processing=0;//如果目前有任務還在進行就是1，否則為0
 var final_result;//存放所有結果
@@ -54,6 +55,7 @@ myEmitter.on('nextcomment', (link) => {
     track_tool.fetchNextPage(request_timeout,mission,link,function(flag,msg){
         if(flag=='err'){
             console.log('[fetchNextPage err] '+msg);
+            myEmitter.emit('one_post_done',{status:'nexterr',data:link});
         }
         else{
             var i;
@@ -68,7 +70,7 @@ myEmitter.on('nextcomment', (link) => {
             else{
                 all_fetch--;
                 if(all_fetch==0){
-                    myEmitter.emit('one_post_done');
+                    myEmitter.emit('one_post_done',{status:'ok',data:''});
                 }
             }
         }
@@ -79,6 +81,7 @@ myEmitter.on('nextsharedpost', (link) => {
     track_tool.fetchNextPage(request_timeout,mission,link,function(flag,msg){
         if(flag=='err'){
             console.log('[fetchNextPage err] '+msg);
+            myEmitter.emit('one_post_done',{status:'nexterr',data:link});
         }
         else{
             var next_result = new track_tool.parseSharedpost(mission['info']['fields'],msg);
@@ -93,7 +96,7 @@ myEmitter.on('nextsharedpost', (link) => {
             else{
                 all_fetch--;
                 if(all_fetch==0){
-                    myEmitter.emit('one_post_done');
+                    myEmitter.emit('one_post_done',{status:'ok',data:''});
                 }
             }
         }
@@ -104,6 +107,7 @@ myEmitter.on('nextreaction', (link) => {
     track_tool.fetchNextPage(request_timeout,mission,link,function(flag,msg){
         if(flag=='err'){
             console.log('[fetchNextPage err] '+msg);
+            myEmitter.emit('one_post_done',{status:'nexterr',data:link});
         }
         else{
             var next_result = new track_tool.parseReaction(mission['info']['fields'],msg);
@@ -121,92 +125,133 @@ myEmitter.on('nextreaction', (link) => {
             else{
                 all_fetch--;
                 if(all_fetch==0){
-                    myEmitter.emit('one_post_done');
+                    myEmitter.emit('one_post_done',{status:'ok',data:''});
                 }
             }
         }
     });
 });
-//TODO
-myEmitter.on('one_post_done', () => {
-    var i,cnt=0;
-    var err_flag=0;
-    try{
-        var reac_type = Object.keys(final_result.reactions);
+
+/*
+* flag:
+*   1.ok:完整追蹤完畢
+*   2.nexterr:追蹤不完整
+*   3.err:完全追蹤失敗
+* */
+var start_track,end_track;
+myEmitter.on('one_post_done', ({status,data}={}) => {
+    end_track = new Date();
+    if(status=='ok'){
+        /*將資料存到data server*/
+        flush();
+        /*記錄追蹤成功的id*/
+        success_ids.push(current_post_id);
+        /*開始搜集下一個*/
+        nextTrack();
+
+
     }
-    catch(e){
-        err_flag=1;
-    }
-    if(err_flag==0){
-        
+    else if(status=='err'){
+        console.log('Can\'t track post id ['+current_post_id+']!');
+        fail_ids.push(current_post_id);
+        nextTrack();
     }
     else{
-
+        console.log('Stop track at link:'+data);
+        track_tool.writeLog('err','track next, stop track at link:'+data);
     }
-
-    console.log('==ok==ok==['+current_post_id+']==ok==ok==')
-    //console.log('--All reactions--');
-    for(i=0;i<reac_type.length;i++){
-        //console.log('['+reac_type[i]+'] '+final_result.reactions[reac_type[i]]);
-        cnt+=final_result.reactions[reac_type[i]];
-    }
-    final_result.reactions_cnt = cnt;
-    //console.log('final_result.reactions_cnt:'+final_result.reactions_cnt);
-
-    //console.log('--All comments--');
-    final_result.comments_cnt = final_result.comments.length;
-    //console.log('final_result.comments_cnt:'+final_result.comments_cnt);
-
-    //console.log('--All sharedposts--');
-    final_result.sharedposts_cnt = final_result.sharedposts.length;
-    //console.log('final_result.sharedposts_cnt:'+final_result.sharedposts_cnt);
-    /*
-       for(i=0;i<final_result.comments.length;i++){
-       console.log('['+i+'] '+final_result.comments[i].message);
-       }
-    */
-
-   //console.log('--Total graph request ['+graph_request+'] --');
-   track_tool.writeRec('gais',current_post_id,final_result);
-   /*Reset基本記錄*/
-   all_fetch=3;
-   graph_request=0;
-   final_result=null;
-   processing=0;//該貼文追蹤完畢，可以繼續接收下個任務
-   /*開始搜集下一個*/
-   var temp = trackids.shift();
-   if(_version=='test'){
-       if(typeof temp!=='undefined'){
-           current_post_id = temp['id'];
-           start(current_post_id);
-       }
-       else{
-           console.log('All post id have been tracked.');
-       }
-   }
-   else if(_version=='test1'||_version=='test2'){
-       if(typeof temp!=='undefined'){
-           current_post_id = temp;
-           start(current_post_id);
-       }
-       else{
-           console.log('All post id have been tracked.');
-           /*向track master通知任務已完成*/
-           var mission_status='done';
-           track_tool.missionReport({master_ip,master_port,master_name,master_version,access_token:mission['token']['access_token'],mission_status,request_timeout,master_timeout_again},(flag,msg)=>{
-               if(flag=='ok'&&msg&&msg['data']&&msg['status']=='ok'){
-                   console.log('missionReport success:'+JSON.stringify(msg,null,2));
-               }
-               else{
-                   console.log('['+flag+'] '+msg);
-               }
-           });
-       }    
-   }
-   else{
-       console.log('Other mission['+_version+']:\n'+JSON.stringify(mission,null,3));
-   }
 });
+function reset(){
+    all_fetch=3;
+    graph_request=0;
+    final_result=null;
+    processing=0;//該貼文追蹤完畢，可以繼續接收下個任務
+
+}
+function nextTrack(){
+    var temp = trackids.shift();
+    if(temp){
+        /*Reset基本記錄*/
+        reset();
+        current_post_id = temp;
+        start(current_post_id);
+    }
+    else{
+        if(_version=='test'){
+            console.log('All post id have been tracked.');
+        }
+        else if(_version=='test1'||_version=='test2'){
+            console.log('All post id have been tracked, waiting for next mission!');
+            /*向track master通知任務已完成*/
+            var mission_status='done';
+            var data={};
+            data['success']=success_ids;
+            data['fail']=fail_ids;
+            track_tool.missionReport({data,master_ip,master_port,master_name,master_version,access_token:mission['token']['access_token'],mission_status,request_timeout,master_timeout_again},(flag,msg)=>{
+                if(flag=='ok'&&msg&&msg['data']&&msg['status']=='ok'){
+                    console.log('missionReport success:'+JSON.stringify(msg,null,2));
+                    /*Reset基本記錄*/
+                    reset();
+                    success_ids=[];
+                    fail_ids=[];
+                }
+                else{
+                    console.log('['+flag+'] '+JSON.stringify(msg,null,3));
+                }
+
+            });
+        }
+        else{
+            console.log('Other mission['+_version+']:\n'+JSON.stringify(mission,null,3));
+        }
+    }
+
+
+
+}
+function flush(){
+    var i,cnt=0;
+    var err_flag=0;
+    if(final_result){
+        var duration = end_track.getTime()-start_track.getTime();
+        var reac_type = Object.keys(final_result.reactions);
+        console.log('==ok==ok==['+current_post_id+']==ok==ok==')
+        //console.log('--All reactions--');
+        for(i=0;i<reac_type.length;i++){
+            //console.log('['+reac_type[i]+'] '+final_result.reactions[reac_type[i]]);
+            cnt+=final_result.reactions[reac_type[i]];
+        }
+        final_result.reactions_cnt = cnt;
+        //console.log('final_result.reactions_cnt:'+final_result.reactions_cnt);
+
+        //console.log('--All comments--');
+        final_result.comments_cnt = final_result.comments.length;
+        //console.log('final_result.comments_cnt:'+final_result.comments_cnt);
+
+        //console.log('--All sharedposts--');
+        final_result.sharedposts_cnt = final_result.sharedposts.length;
+        //console.log('final_result.sharedposts_cnt:'+final_result.sharedposts_cnt);
+        /*
+           for(i=0;i<final_result.comments.length;i++){
+           console.log('['+i+'] '+final_result.comments[i].message);
+           }
+           */
+
+        //console.log('--Total graph request ['+graph_request+'] --');
+     
+        /*記錄追蹤資訊*/
+        duration /=1000;
+        var track_log={};
+        track_log['post_id']=current_post_id;
+        track_log['track_time']=duration;
+        track_log['comments_cnt']=final_result.comments_cnt;
+        track_log['reactions_cnt']=final_result.reactions_cnt;
+        track_log['sharedposts_cnt']=final_result.sharedposts_cnt;
+        track_tool.writeLog('process','Track info, '+JSON.stringify(track_log));
+        
+        track_tool.writeRec('gais',current_post_id,final_result);
+    }
+}
 /**
  * --階段--
  * 測試模式(test)，為單機執行 不需要開啟api，先測試是否可以正確搜集到資料 並將資料合併成gaisRec，基本參數設定在loca端的crawler_setting.json file裡
@@ -235,8 +280,8 @@ if(_version=='test'){
 
     trackids = track_posts;
     var temp = trackids.shift();
-    if(typeof temp!=='undefined'){
-        current_post_id = temp['id'];
+    if(!temp){
+        current_post_id = temp;
         start(current_post_id);
     }
 }
@@ -335,7 +380,7 @@ function start(track_id){
         trackids.push(track_id);//將任務再塞回去
         return;
     }
-
+    start_track = new Date();
     processing=1;//開關打開，在完成當前任務前都不會接受任何新任務，亦即，同時只會追蹤一個貼文
     console.log('=>==>==>=['+track_id+']=>==>==>=')
     current_post_id = track_id;
@@ -343,25 +388,7 @@ function start(track_id){
     track_tool.trackPost(request_timeout,mission,track_id,(flag,msg)=>{
         if(flag=='err'){
             console.log('[trackPost err] '+msg);
-            myEmitter.emit('one_post_done');
-            /*
-            track_tool.listTrack({master_ip,master_port,master_name,master_version,access_token:mission['token']['access_token'],request_timeout,master_timeout_again},(flag,msg)=>{
-                console.log('listTrack:\n'+JSON.stringify(msg,null,3));
-                fs.writeFile('./result4',JSON.stringify(msg,null,3),()=>{});
-            });
-            */
-           /*
-            var mission_status='done';
-            track_tool.missionReport({master_ip,master_port,master_name,master_version,access_token:mission['token']['access_token'],mission_status,request_timeout,master_timeout_again},(flag,msg)=>{
-                if(flag=='ok'&&msg&&msg['data']&&msg['status']=='ok'){
-                    console.log('missionReport success:'+JSON.stringify(msg,null,2));
-
-                }
-                else{
-                    console.log('['+flag+'] '+msg);
-                }
-            });
-            */
+            myEmitter.emit('one_post_done',{status:'err',data:''});
         }
         else{
             final_result = new track_tool.initContent(mission['info']['fields'],msg);
@@ -374,7 +401,7 @@ function start(track_id){
             else{
                 all_fetch--;
                 if(all_fetch==0){
-                    myEmitter.emit('one_post_done');
+                    myEmitter.emit('one_post_done',{status:'ok',data:''});
                 }
             }
             /*搜集下一頁的sharedposts*/
@@ -385,7 +412,7 @@ function start(track_id){
             else{
                 all_fetch--;
                 if(all_fetch==0){
-                    myEmitter.emit('one_post_done');
+                    myEmitter.emit('one_post_done',{status:'ok',data:''});
                 }
             }
             /*搜集下一頁reactions*/
@@ -400,7 +427,7 @@ function start(track_id){
             else{
                 all_fetch--;
                 if(all_fetch==0){
-                    myEmitter.emit('one_post_done');
+                    myEmitter.emit('one_post_done',{status:'ok',data:''});
                 }
             }
         }

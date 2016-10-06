@@ -238,6 +238,7 @@ class Track{
             return false;
         }
         this.crawlerSatus.set(token,mission_status);
+        return true;
     }
     /*TODO:testing*/
     hasPostId(id){
@@ -573,7 +574,7 @@ class Track{
 
         let info = this.schedulesInfo.get(schedule_name);
         info['status']='off';
-        
+        return true;
     }
     deleteSchedule(schedule_name){
         if(!schedule_name){
@@ -657,6 +658,7 @@ class Track{
     }
     /*TODO*/
     sendMission(crawler_token,{ip,port,crawler_name,crawler_version,control_token,track_ids}){
+        var _self=this;
         this.mission['track_posts']=[];
         this.mission['track_posts'] = track_ids.map(function(x){
             return x.post_id;
@@ -701,7 +703,7 @@ class Track{
                 if(err){
                     if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
                         setTimeout(function(){
-                            sendMission(crawler_token,{ip,port,crawler_name,crawler_version,control_token,track_ids});
+                            _self.sendMission(crawler_token,{ip,port,crawler_name,crawler_version,control_token,track_ids});
                         },master_setting['crawler_timeout_again']*1000);
                     }
                     else{
@@ -712,7 +714,7 @@ class Track{
                 else{
                     if(res.statusCode>=500&&res.statusCode<600){
                         setTimeout(function(){
-                            sendMission(crawler_token,{ip,port,crawler_name,crawler_version,control_token,track_ids});
+                            _self.sendMission(crawler_token,{ip,port,crawler_name,crawler_version,control_token,track_ids});
                         },master_setting['crawler_timeout_again']*1000);
                     }
                     else{
