@@ -39,6 +39,9 @@ loadIds();
 /*所有的request都必須被檢查其access token*/
 master.use(function(req,res,next){
     var access_token = req.body['access_token'];
+    if(!access_token){
+        access_token = req.query['access_token'];
+    }
     if((!track.getCrawler(access_token)&&req.path!='/apply')||(access_token!=master_setting['invite_token'])&&req.path=='/apply'){
         console.log('err token ['+access_token+']');
         sendResponse(res,'token_err','','');
@@ -135,7 +138,6 @@ master.route('/mission_report')
         sendResponse(res,'fail',200,result);
     }
     if(test_flag==0){
-        track.stopSchedules('demo1');
         //randomId({time:10,rec_num:5});
         /*
         setTimeout(function(){
