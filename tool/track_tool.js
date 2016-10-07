@@ -917,6 +917,55 @@ function wordToUpper(index,str){
         return x;
     }).join('');
 }
+function initDir(dir){
+    var root = dir['root'];
+    var type = dir['type'];
+    if(!root){
+        console.log('Must have root dir!');
+        return false;
+    }
+    fs.access(root,fs.constants.F_OK,(err)=>{
+        if(err){
+            addDir(root,(flag)=>{
+                if(flag){
+                    addSubDir({parent:root,childs:type});
+                }
+            });
+        }
+        else if(type){
+            addSubDir({parent:root,childs:type});
+        }
+    });
+}
+function addDir(dir,next){
+    if(!dir){
+        return false;
+    }
+    fs.mkdir(dir,'0744',(err)=>{
+        if(err){
+            next(false)
+        }
+        else{
+            console.log('Init dir:'+dir);
+            next(true);
+        }
+    });
+}
+function addSubDir({parent,childs}){
+    if(!parent||!childs){
+    }
+    else{
+        for(let i=0;i<childs.length;i++){
+            let sub_name = childs[i]['name'];
+            fs.access(parent+'/'+sub_name,fs.constants.F_OK,(err)=>{
+                if(err){
+                    addDir(parent+'/'+sub_name,()=>{})
+                }
+            });
+        }
+    }
+}
+exports.initDir=initDir;
 exports.sendResponse=sendResponse;
 exports.writeLog=writeLog;
 exports.writeRec=writeRec;

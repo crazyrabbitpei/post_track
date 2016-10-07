@@ -307,7 +307,7 @@ else{
                         mission['token']['access_token']=msg['data']['access_token'];
                     }
                     else{
-                        console.log('['+flag+'] '+msg);
+                        console.log('['+flag+'] '+JSON.stringify(msg,null,2));
                     }
 
                 });
@@ -343,13 +343,12 @@ else{
                     data['track_pages'].push(post);
                     post=new Object();
                 }
-                console.log('Client:'+JSON.stringify(data));
+               // console.log('Client:'+JSON.stringify(data));
 
                 track_tool.uploadTrackPost({master_ip,master_port,master_name,master_version,access_token:mission['token']['access_token'],data,request_timeout,master_timeout_again},(flag,msg)=>{
                     if(flag=='ok'&&msg&&msg['data']&&msg['status']=='ok'){
                         console.log(JSON.stringify(msg,null,3));
                         /*apply成功後會得到 1.access_token 2.graph token*/
-                        return;
                         track_tool.applyCrawler({crawler_port,master_ip,master_port,master_name,master_version,invite_token,request_timeout,master_timeout_again},(flag,msg)=>{
                             if(flag=='ok'&&msg&&msg['data']&&msg['status']=='ok'){
                                 app.use('/'+crawler_name+'/'+crawler_version,crawler);
@@ -357,7 +356,7 @@ else{
                                 mission['token']['access_token']=msg['data']['access_token'];
                                 console.log('Apply success:'+JSON.stringify(msg,null,3));
                                 track_tool.listTrack({master_ip,master_port,master_name,master_version,access_token:mission['token']['access_token'],request_timeout,master_timeout_again},(flag,msg)=>{
-                                    console.log('listTrack:\n'+JSON.stringify(msg,null,3));
+                                    //console.log('listTrack:\n'+JSON.stringify(msg,null,3));
                                 });
                             }
                             else{

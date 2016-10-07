@@ -2,12 +2,9 @@
 
 /*
  * TODO: 
- *  1.查詢crawler狀態
- *  2.查詢追蹤pool
- *  3.管理追蹤清單
- *  4.管理設定檔
- *  5.設定檔：是否抓原文？
- *
+ *  1. track data center
+ *  2. 接收data crawler token的API，會由crawler master那邊發出，再由track master儲存起來，token用於辨識是否為合法註冊的data crawler，才能使用/post_id功能
+ *  3. data crawler要與這邊api做測試
 * */
 var master_tool = require('./tool/master_tool.js');
 var request = require('request');
@@ -82,29 +79,8 @@ master.post('/apply',function(req,res){
     track.insertCrawler(access_token,{ip:req.ip,port:req.port});
 
     sendResponse(res,'ok',200,result);
-    console.log('Master:\n'+JSON.stringify(track.listCrawlers(),null,3));
-    /*
-    mission['track_posts'] = [];
-    var id = track_ids.shift();
-    var i=0;
-    while(typeof id!=='undefined'){
-        mission['track_posts'].push(id);
-        i++;
-        if(i<master_setting['ids_num']){
-            id = track_ids.shift();
-        }
-        else{
-            break;
-        }
-    }
-    */
-    /*若有馬上指派任務，則將crawler_info的狀態改為ing，代表目前正在搜集資料，若沒任務可指派 則維持init*/
-    /*
-    if(i!=0){
-        manageCrawler(access_token,req,'ing');
-    }
-
-    */
+    track.sendApply2DataCenter(access_token,{ip:req.ip,port:req.port},{center_ip:master_setting['center_ip'],center_port:master_setting['center_port'],center_name:master_setting['center_name'],center_version:master_setting['center_version'],control_token:master_setting['control_token']});   
+    //console.log('Master:\n'+JSON.stringify(track.listCrawlers(),null,3));
 
 });
 /*

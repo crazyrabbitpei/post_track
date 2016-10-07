@@ -656,6 +656,69 @@ class Track{
         }
         return true;
     }
+    sendApply2DataCenter(crawler_token,crawler_info,{center_ip,center_port,center_name,center_version,control_token}){
+        console.log('sendApply2DataCenter:'+JSON.stringify(crawler_info)+'\n'+'http://'+center_ip+':'+center_port+'/'+center_name+'/'+center_version+'/apply/'+crawler_token);
+        var _self=this;
+        request({
+            method:'POST',
+            json:true,
+            headers:{
+                "content-type":"application/json"
+            },
+            body:{
+                access_token:control_token,
+                data:crawler_info
+            },
+            url:'http://'+center_ip+':'+center_port+'/'+center_name+'/'+center_version+'/apply/'+crawler_token,
+            timeout:master_setting['request_timeout']*1000
+        },(err,res,body)=>{
+            if(!err&&res.statusCode==200){
+                var err_msg='';
+                var err_flag=0
+                try{
+                    var content = body;
+                }
+                catch(e){
+                    err_flag=1;
+                    err_msg=e;
+                }
+                finally{
+                    if(err_flag==1){
+                        writeLog('err','sendApply2DataCenter, '+err_msg);
+                        return false;
+                    }
+                    else{
+
+                        return true;
+                    }
+                }
+            }
+            else{
+                if(err){
+                    if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
+                        setTimeout(function(){
+                            _self.sendApply2DataCenter(crawler_token,crawler_info,{center_ip,center_port,center_name,center_version,control_token})
+                        },master_setting['crawler_timeout_again']*1000);
+                    }
+                    else{
+                        writeLog('err','sendApply2DataCenter, '+err);
+                        return false;
+                    }
+                }
+                else{
+                    if(res.statusCode>=500&&res.statusCode<600){
+                        setTimeout(function(){
+                            _self.sendApply2DataCenter(crawler_token,crawler_info,{center_ip,center_port,center_name,center_version,control_token})
+                        },master_setting['crawler_timeout_again']*1000);
+                    }
+                    else{
+                        writeLog('err','sendApply2DataCenter, '+res['statusCode']+', '+body['err']);
+                        return false;
+                    }
+                }
+            }
+        });
+    }
     /*TODO*/
     sendMission(crawler_token,{ip,port,crawler_name,crawler_version,control_token,track_ids}){
         var _self=this;
@@ -727,6 +790,105 @@ class Track{
     }
 }
 
+class DataCenter{
+    constructor(){
+        this.crawlersInfo=new Map();
+    }
+    insertCrawler(token,{ip,port}={}){
+        if(!token){
+            return false;
+        }
+        else if(this.crawlersInfo.has(token)){
+            return false;
+        }
+        if(!ip||!port){
+           return false;
+        }
+        let info={};
+        info['ip']=ip;
+        info['port']=port;
+        info['active_time']=dateFormat(new Date(),'yyyy/mm/dd HH:MM:ss');
+        this.crawlersInfo.set(token,info);
+        return true;
+    }
+
+    deleteCrawler(token){
+        if(!this.crawlersInfo.has(token)||!token){
+            return false;
+        }
+        this.crawlersInfo.delete(token);
+        return true;
+    }
+    updateCrawler(token,...args){
+        if(!token){
+            return false;
+        }
+        else if(!this.crawlersInfo.has(token)){
+            return false;
+        }
+        if(!args[0]){
+            return false;
+        }
+        
+        var info=this.crawlersInfo.get(token);
+        if(args[0]['ip']){
+            info['ip']=args[0]['ip'];
+        }
+        if(args[0]['port']){
+            info['port']=args[0]['port'];
+        }
+        if(args[0]['active_time']){
+            info['active_time']=dateFormat(new Date(args[0]['active_time']),'yyyy/mm/dd HH:MM:ss');
+        }
+
+        return true;
+    }
+    /*TODO:testing*/
+    getCrawler(token){
+        var result={};
+        if(!token){
+            return false;
+        }
+        else if(!this.crawlersInfo.has(token)){
+            return false;
+        }
+        result={name:token,info:this.crawlersInfo.get(token)};
+        return result; 
+        
+    }
+    listCrawlers(...crawler_tokens){
+        var results=[];
+        var i=0;
+        if(crawler_tokens.length==0){
+            /*
+            while(i<master_setting.list_size&&i<this.crawlersInfo.size){//TODO:「下一頁」功能，目前最多只會顯示master setting所設定的數目
+                results.push({token:this.crawlersInfo.,info:this.trackPools[Object.keys(this.trackPools)[i]]});
+                i++;
+            }
+            */
+            for (var [key, value] of this.crawlersInfo.entries()) {
+                results.push({name:key,info:value});
+                i++;
+                if(i>master_setting.list_size){break;}
+            }
+        }
+        else{
+            var key,value;
+            while(i<crawler_tokens.length){
+                key = crawler_tokens[i];
+                if(this.crawlersInfo.has(key)){
+                    value = this.crawlersInfo.get(key);
+                    results.push({name:key,info:value});
+                }
+                i++;
+                if(i>master_setting.list_size){break;}
+            }
+        }
+        return results;
+    }
+
+}
+exports.DataCenter=DataCenter;
 exports.Track=Track;
 
 function checkDateFormat(created_time){
