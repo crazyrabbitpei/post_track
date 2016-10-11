@@ -6,9 +6,26 @@ var HashMap = require('hashmap');
 var querystring = require('querystring');
 var reactions;
 var crawler_setting = JSON.parse(fs.readFileSync('./service/crawler_setting.json'));
+const center_ip = crawler_setting['center_ip'];
+const center_port = crawler_setting['center_port'];
+const center_name = crawler_setting['center_name'];
+const center_version = crawler_setting['center_version'];
+
+const request_timeout = crawler_setting['request_timeout'];
+const master_timeout_again = crawler_setting['master_timeout_again'];
+const graph_timeout_again = crawler_setting['graph_timeout_again'];
+const retry_limit = crawler_setting['retry_limit'];
+var cnt_retry=0;
 
 //function applyCrawler(crawler_port,ip,port,master_name,master_version,token,timeout,retryt,fin){
-function applyCrawler({crawler_port,master_ip,master_port,master_name,master_version,invite_token,request_timeout,master_timeout_again},fin){
+function applyCrawler({crawler_port,master_ip,master_port,master_name,master_version,invite_token},fin){
+    if(cnt_retry>retry_limit){
+        writeLog('err','applyCrawler, retry over limit:'+cnt_retry);
+        fin('err','applyCrawler, retry over limit:'+cnt_retry);
+        cnt_retry=0;
+        return;
+    }
+
     console.log('Apply:'+'http://'+master_ip+':'+master_port+'/'+master_name+'/'+master_version+'/apply');
     request({
         method:'POST',
@@ -45,9 +62,11 @@ function applyCrawler({crawler_port,master_ip,master_port,master_name,master_ver
         }
         else{
             if(err){
+                console.log('applyCrawler, '+err.code);
                 if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
                     setTimeout(function(){
-                        applyCrawler({crawler_port,master_ip,master_port,master_name,master_version,invite_token,request_timeout,master_timeout_again},fin);
+                        cnt_retry++;
+                        applyCrawler({crawler_port,master_ip,master_port,master_name,master_version,invite_token},fin);
                     },master_timeout_again*1000);
                 }
                 else{
@@ -56,9 +75,11 @@ function applyCrawler({crawler_port,master_ip,master_port,master_name,master_ver
                 }
             }
             else{
+                console.log('applyCrawler, '+res['statusCode']+', '+body['err']);
                 if(res.statusCode>=500&&res.statusCode<600){
                     setTimeout(function(){
-                        applyCrawler({crawler_port,master_ip,master_port,master_name,master_version,invite_token,request_timeout,master_timeout_again},fin);
+                        cnt_retry++;
+                        applyCrawler({crawler_port,master_ip,master_port,master_name,master_version,invite_token},fin);
                     },master_timeout_again*1000);
                 }
                 else{
@@ -69,8 +90,69 @@ function applyCrawler({crawler_port,master_ip,master_port,master_name,master_ver
        }
     });
 }
-//function uploadTrackPost(ip,port,master_name,master_version,token,data,timeout,retryt,fin){
-function uploadTrackPost({master_ip,master_port,master_name,master_version,access_token,data,request_timeout,master_timeout_again},fin){
+function uploadTrackPostData(access_token,{data,datatype},fin){
+    if(datatype=='gais'){
+        data = transGais(data);
+    }
+    else if(datatype=='json'){
+        data = JSON.stringify(data);
+    }
+    console.log('Upload data:http://'+center_ip+':'+center_port+'/'+center_name+'/'+center_version+'/data/'+datatype+'access_token='+access_token);
+    request({
+        method:'POST',
+        body:data,
+        url:'http://'+center_ip+':'+center_port+'/'+center_name+'/'+center_version+'/data/'+datatype+'?access_token='+access_token,
+        timeout:request_timeout*1000
+    },(err,res,body)=>{
+        if(!err&&(res.statusCode>=200&&res.statusCode<300)){
+            var err_msg='';
+            var err_flag=0
+            try{
+                var content = body;
+            }
+            catch(e){
+                err_flag=1;
+                err_msg=e;
+            }
+            finally{
+                if(err_flag==1){
+                    fin('err',err_msg);
+                }
+                else{
+                    fin('ok',content);   
+                }
+            }
+
+        }
+        else{
+            if(err){
+                if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
+                    setTimeout(function(){
+                        uploadTrackPostData(access_token,data,fin);
+                    },master_timeout_again*1000);
+                }
+                else{
+                    writeLog('err','uploadTrackPostData, '+err);
+                    fin('err','uploadTrackPostData, '+err);
+                }
+            }
+            else{
+                if(res.statusCode>=500&&res.statusCode<600){
+                    setTimeout(function(){
+                        uploadTrackPostData(access_token,data,fin);
+                    },master_timeout_again*1000);
+                }
+                else{
+                    writeLog('err','uploadTrackPostData, '+res['statusCode']+', '+body['err']);
+                    fin('err','uploadTrackPostData, '+res['statusCode']+', '+body['err']);
+                }
+            }
+       }
+    });
+}
+//function uploadTrackPostId(ip,port,master_name,master_version,token,data,timeout,retryt,fin){
+//data cralwer用
+function uploadTrackPostId({master_ip,master_port,master_name,master_version,access_token,data},fin){
     console.log('http://'+master_ip+':'+master_port+'/'+master_name+'/'+master_version+'/post_id');
     request({
         method:'POST',
@@ -109,30 +191,30 @@ function uploadTrackPost({master_ip,master_port,master_name,master_version,acces
             if(err){
                 if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
                     setTimeout(function(){
-                        uploadTrackPost({master_ip,master_port,master_name,master_version,access_token,data,request_timeout,master_timeout_again},fin);
+                        uploadTrackPostId({master_ip,master_port,master_name,master_version,access_token,data},fin);
                     },master_timeout_again*1000);
                 }
                 else{
-                    writeLog('err','uploadTrackPost, '+err);
-                    fin('err','uploadTrackPost, '+err);
+                    writeLog('err','uploadTrackPostId, '+err);
+                    fin('err','uploadTrackPostId, '+err);
                 }
             }
             else{
                 if(res.statusCode>=500&&res.statusCode<600){
                     setTimeout(function(){
-                        uploadTrackPost({master_ip,master_port,master_name,master_version,access_token,data,request_timeout,master_timeout_again},fin);
+                        uploadTrackPostId({master_ip,master_port,master_name,master_version,access_token,data},fin);
                     },master_timeout_again*1000);
                 }
                 else{
-                    writeLog('err','uploadTrackPost, '+res['statusCode']+', '+body['err']);
-                    fin('err','uploadTrackPost, '+res['statusCode']+', '+body['err']);
+                    writeLog('err','uploadTrackPostId, '+res['statusCode']+', '+body['err']);
+                    fin('err','uploadTrackPostId, '+res['statusCode']+', '+body['err']);
                 }
             }
        }
     });
 }
 //function listTrack(ip,port,master_name,master_version,token,date,timeout,retryt,fin){
-function listTrack({master_ip,master_port,master_name,master_version,access_token,request_timeout,master_timeout_again},fin){
+function listTrack({master_ip,master_port,master_name,master_version,access_token},fin){
     console.log('http://'+master_ip+':'+master_port+'/'+master_name+'/'+master_version+'/status')
     request({
         method:'GET',
@@ -141,7 +223,7 @@ function listTrack({master_ip,master_port,master_name,master_version,access_toke
             access_token:access_token
         },
         url:'http://'+master_ip+':'+master_port+'/'+master_name+'/'+master_version+'/status',
-        timeout:master_timeout_again*1000
+        timeout:request_timeout*1000
     },(err,res,body)=>{
         if(!err&&(res.statusCode>=200&&res.statusCode<300)){
             var err_msg='';
@@ -189,7 +271,7 @@ function listTrack({master_ip,master_port,master_name,master_version,access_toke
        }
     });
 }
-function missionReport({data,master_ip,master_port,master_name,master_version,access_token,mission_status,request_timeout,master_timeout_again},fin){
+function missionReport({data,master_ip,master_port,master_name,master_version,access_token,mission_status},fin){
     request({
         method:'POST',
         json:true,
@@ -231,7 +313,7 @@ function missionReport({data,master_ip,master_port,master_name,master_version,ac
             if(err){
                 if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
                     setTimeout(function(){
-                        missionReport(ip,port,master_name,master_version,token,timeout,retryt,fin)
+                        missionReport({data,master_ip,master_port,master_name,master_version,access_token,mission_status},fin);
                     },master_timeout_again*1000);
                 }
                 else{
@@ -242,7 +324,7 @@ function missionReport({data,master_ip,master_port,master_name,master_version,ac
             else{
                 if(res.statusCode>=500&&res.statusCode<600){
                     setTimeout(function(){
-                        missionReport(ip,port,master_name,master_version,token,timeout,retryt,fin)
+                        missionReport({data,master_ip,master_port,master_name,master_version,access_token,mission_status},fin);
                     },master_timeout_again*1000);
                 }
                 else{
@@ -253,14 +335,20 @@ function missionReport({data,master_ip,master_port,master_name,master_version,ac
        }
     });
 }
-function trackPost(timeout,mission,post_id,fin){
+function trackPost(mission,post_id,fin){
+    if(cnt_retry>retry_limit){
+        writeLog('err','trackPost, retry over limit:'+cnt_retry);
+        fin('err','trackPost, retry over limit:'+cnt_retry);
+        cnt_retry=0;
+        return;
+    }
     console.log('Mission:\n'+JSON.stringify(mission,null,2));
     var site = mission['info']['site']+mission['info']['graph_version']+'/'+post_id+'?fields='+mission['info']['fields']+'&access_token='+mission['token']['graph_token']+'&limit='+mission['info']['limit'];
     //console.log('\nRequest:'+site);
     //return;
     request({
         url:site,
-        timeout:timeout*1000
+        timeout:request_timeout*1000
     },(err,res,body)=>{
         if(!err&&(res.statusCode>=200&&res.statusCode<300)){
             var err_msg='';
@@ -287,8 +375,9 @@ function trackPost(timeout,mission,post_id,fin){
                 if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
                     console.log('Retry [trackPost]:'+err.code);
                     setTimeout(function(){
-                        trackPost(site,timeout);
-                    },mission['info']['graph_timeout_again']*1000);
+                        cnt_retry++;
+                        trackPost(mission,post_id,fin)
+                    },graph_timeout_again*1000);
                 }
                 else{
                     writeLog('err','trackPost, '+err);
@@ -299,8 +388,9 @@ function trackPost(timeout,mission,post_id,fin){
                 if(res.statusCode>=500&&res.statusCode<600){
                     console.log('Retry [trackPost]:'+res.statusCode);
                     setTimeout(function(){
-                        trackPost(site,timeout);
-                    },mission['info']['graph_timeout_again']*1000);
+                        cnt_retry++;
+                        trackPost(mission,post_id,fin)
+                    },graph_timeout_again*1000);
                 }
                 else{
                     writeLog('err','trackPost, '+res['statusCode']+', '+res['body']);
@@ -727,10 +817,10 @@ function parseReaction(fields,content){
         return this;
     }
 }
-function fetchNextPage(timeout,mission,site,fin){
+function fetchNextPage(mission,site,fin){
     request({
         url:site,
-        timeout:timeout*1000
+        timeout:request_timeout*1000
     },(err,res,body)=>{
         if(!err&&(res.statusCode>=200&&res.statusCode<300)){
             var err_msg='';
@@ -757,8 +847,8 @@ function fetchNextPage(timeout,mission,site,fin){
                 console.log('err:'+err);
                 if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
                     setTimeout(function(){
-                        fetchNextPage(timeout,mission,site,fin);
-                    },mission['info']['graph_timeout_again']*1000);
+                        fetchNextPage(mission,site,fin);
+                    },graph_timeout_again*1000);
                 }
                 else{
                     writeLog('err','fetchNextPage, '+err);
@@ -768,8 +858,8 @@ function fetchNextPage(timeout,mission,site,fin){
             else{
                 if(res.statusCode>=500&&res.statusCode<600){
                     setTimeout(function(){
-                        fetchNextPage(timeout,mission,site,fin);
-                    },mission['info']['graph_timeout_again']*1000);
+                        fetchNextPage(mission,site,fin);
+                    },graph_timeout_again*1000);
                 }
                 else{
                     writeLog('err','fetchNextPage, '+res['statusCode']+', '+res['body']);
@@ -972,7 +1062,8 @@ exports.writeRec=writeRec;
 exports.applyCrawler=applyCrawler;
 exports.missionReport=missionReport;
 exports.trackPost=trackPost;
-exports.uploadTrackPost=uploadTrackPost;
+exports.uploadTrackPostId=uploadTrackPostId;
+exports.uploadTrackPostData=uploadTrackPostData;
 exports.listTrack=listTrack;
 exports.initContent=initContent;
 exports.fetchNextPage=fetchNextPage;

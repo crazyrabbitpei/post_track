@@ -1,10 +1,17 @@
 'use strict'
+//TODO:
+//  1. retry limit，控制timeout後 重新連線的次數
+//  2. server開始前，將crawler資訊和data center同步
 var fs = require('fs');
 var CronJob = require('cron').CronJob;
 var dateFormat = require('dateformat');
 var request = require('request');
 
 var master_setting = JSON.parse(fs.readFileSync('./service/master_setting.json'));
+const center_ip = master_setting['center_ip'];
+const center_port = master_setting['center_port'];
+const center_name = master_setting['center_name'];
+const center_version = master_setting['center_version'];
 
 class Track{
     constructor(){
@@ -695,6 +702,7 @@ class Track{
             }
             else{
                 if(err){
+                    console.log('sendApply2DataCenter, '+err.code);
                     if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
                         setTimeout(function(){
                             _self.sendApply2DataCenter(crawler_token,crawler_info,{center_ip,center_port,center_name,center_version,control_token})
@@ -706,6 +714,7 @@ class Track{
                     }
                 }
                 else{
+                    console.log('sendApply2DataCenter, '+res.statusCode);
                     if(res.statusCode>=500&&res.statusCode<600){
                         setTimeout(function(){
                             _self.sendApply2DataCenter(crawler_token,crawler_info,{center_ip,center_port,center_name,center_version,control_token})
@@ -888,9 +897,51 @@ class DataCenter{
     }
 
 }
+function connect2DataCenter(fin){
+        var _self=this;
+        request({
+            method:'GET',
+            url:'http://'+center_ip+':'+center_port+'/'+center_name+'/'+center_version+'/testConnect?access_token='+master_setting['control_token'],
+            timeout:master_setting['request_timeout']*1000
+        },(err,res,body)=>{
+            if(!err&&res.statusCode==200){
+                var err_msg='';
+                var err_flag=0
+                try{
+                    var content = body;
+                }
+                catch(e){
+                    err_flag=1;
+                    err_msg=e;
+                }
+                finally{
+                    if(err_flag==1){
+                        writeLog('err','connect2DataCenter, '+err_msg);
+                        fin(false,err_msg);
+                    }
+                    else{
+                        fin(true,content);
+                    }
+                }
+            }
+            else{
+                if(err){
+                    console.log('connect2DataCenter, '+err.code);
+                    writeLog('err','connect2DataCenter, '+err);
+                    fin(false,err);
+                }
+                else{
+                    console.log('connect2DataCenter, '+res.statusCode);
+                    writeLog('err','connect2DataCenter, '+res['statusCode']+', '+body['err']);
+                    fin(false,res['statusCode']+', '+body['err']);
+                }
+            }
+        });
+}
+
 exports.DataCenter=DataCenter;
 exports.Track=Track;
-
+exports.connect2DataCenter=connect2DataCenter;
 function checkDateFormat(created_time){
     var time = new Date(created_time).getTime();
     return isNaN(time)?false:true;

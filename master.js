@@ -321,10 +321,11 @@ function loadGraphToken(){
     });
 
     lr.on('end', function () {
-        console.log('Master [loadGraphToken] Loading done!');
+
         for(let [key,value] of graph_tokens.entries()){
             console.log('Graph token:'+key+' cnt:'+value);
         }
+        console.log('Master [loadGraphToken] Loading done!');
     });
 }
 
@@ -343,8 +344,8 @@ function loadIds(){
         }
     });
     lr.on('end', function () {
-        console.log('Master [loadIds] Loading done!');
         console.log('Init Master track_ids:\n'+JSON.stringify(track.listPools(),null,3));
+        console.log('Master [loadIds] Loading done!');
     });
 }
 function writeLog(type,msg){

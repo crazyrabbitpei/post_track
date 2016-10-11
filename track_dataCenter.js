@@ -5,6 +5,7 @@ var app = express();
 var http = require('http');
 var server = http.createServer(app);
 var fs = require('graceful-fs');
+var dateFormat = require('dateformat');
 
 const master_tool = require('./tool/master_tool.js');
 const center_tool = require('./tool/center_tool.js');
@@ -17,6 +18,7 @@ const center_token = dataCenter_setting['center_token'];
 const data_dir = dataCenter_setting['data_dir']['root'];
 const json_dir = dataCenter_setting['data_dir']['type']['json'];
 const gais_dir = dataCenter_setting['data_dir']['type']['gais'];
+const log_dir = dataCenter_setting['log_dir']['root'];
 
 center_tool.initDir(dataCenter_setting['data_dir']);
 center_tool.initDir(dataCenter_setting['log_dir']);
@@ -42,9 +44,14 @@ center.use(function(req,res,next){
         sendResponse(res,'token_err','','');
         return;
     }
+    console.log('Success:'+access_token);
     next();
 });
 
+center.get('/testConnect',function(req,res){
+    var result = 'Success connect to Data Center!';
+    sendResponse(res,'ok',200,result);
+});
 /*接收從tarck master那傳來的tarck crawler token*/
 center.post('/apply/:access_token',function(req,res){
     var access_token = req.params.access_token;
@@ -62,30 +69,80 @@ center.post('/apply/:access_token',function(req,res){
 });
 
 center.post('/data/:datatype(json|gais)',function(req,res){
-    var datatype = req.params.datatype;a
+    var datatype = req.params.datatype;
     var now=dateFormat(new Date(),'yyyymmdd');
-    var dir;
+    var size=0;
+    var dir=data_dir+'/';
+    dir+=datatype+'/'+now+'.'+datatype;
+    /*
     if(datatype=='json'){
-        dir=data_dir+'/'+json_dir+'/'+now;
+        dir+=datatype+'/'+now+'.'+datatype;
     }
     else if(datatype=='gais'){
-        dir=data_dir+'/'+gais_dir+'/'+now;
-    }
 
+    }
+    */
+    console.log('Start reading data...');
     req.on('data', function(data){
         size+=Buffer.byteLength(data);
         fs.appendFile(dir,data,'utf8',function(err){
             if(err){
                 console.log('err:'+err);
-                writeLog('err','from '+req.ip+', upload fail:'+err);
-                sendResponse(res,200,action,'false','','upload fail:'+err);
+                writeLog('err','From '+req.ip+', upload fail:'+err);
+                sendResponse(res,'false',200,'Upload fail:'+err);
             }
         });
 
     });
     req.on('end', function(data){
         /*recording ip and datasize*/
-        writeLog('process','from '+req.ip+', upload success:'+size);
-        sendResponse(res,200,action,'ok','','');
+        fs.appendFile(dir,'\n','utf8',()=>{});
+        console.log('From '+req.ip+', upload success:'+size);
+        writeLog('process','From '+req.ip+', upload success:'+size);
+        sendResponse(res,'ok',200,'Upload success:'+size);
     });
 });
+function sendResponse(res,type,status_code,msg){
+    var result = new Object();
+    result['status']=type;
+    if(type=='token_err'){
+        result['data']='';
+        result['err']=dataCenter_setting['err_msg']['token_err'];
+        res.status(403).send(result);
+    }
+    else if(type=='process_err'){
+        result['data']='';
+        result['err']=dataCenter_setting['err_msg']['process_err']+', '+msg;
+        res.status(503).send(result);
+    }
+    else if(status_code>=200&&status_code<300){
+        result['data']=msg;
+        result['err']='';
+        res.status(status_code).send(result);
+    }
+    else{
+        result['data']='';
+        result['err']=msg;
+        res.status(status_code).send(result);
+    }
+}
+function writeLog(type,msg){
+    var now = new Date();
+    var date = dateFormat(now,'yyyymmdd');
+    var filename=log_dir+'/';
+    if(type=='err'){
+        filename += 'err/'+date+'.'+type;
+    }
+    else if(type=='process'){
+        filename += 'process/'+date+'.'+type;
+    }
+    else{
+        filename += 'other/'+date+'.'+type;
+    }
+
+    fs.appendFile(filename,'['+now+'] Type:'+type+' Message:'+msg+'\n',(err)=>{
+        if(err){
+            console.log('Master [writeLog] Error:'+err);
+        }
+    });
+}
