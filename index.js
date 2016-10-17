@@ -48,7 +48,7 @@ var fail_ids=[];
 var start_track,end_track;
 var current_post_id='';//目前正在抓取的id
 /*設定上傳條件*/
-var uploadInterval,rec_size=0,rec_num=0,upload_time=0;
+var uploadInterval,rec_size=0,rec_num=0,upload_time=false;
 var WAIT_TIME,REC_NUM,REC_SIZE,UPLOAD_TIME;
 
 var force_upload_flag=0;
@@ -167,7 +167,6 @@ myEmitter.on('one_post_done',({track_status,data})=>{
         else{
             fs.appendFile('./check_one_post_done','id:'+current_post_id+' not have single_result\n',()=>{});
         }
-        
         /*記錄追蹤成功的id*/
         success_ids.push(current_post_id);
         /*開始搜集下一個*/
@@ -254,7 +253,7 @@ function resultBucket(){
         flush();
     }
     else if(uploadInterval=='rec_size'){
-        if(rec_size>REC_SIZE){
+        if(rec_size>=REC_SIZE){
             flush();
         }
     }
@@ -263,10 +262,16 @@ function resultBucket(){
             flush();
         }
     }
+    /*TODO:testing*/
     else if(uploadInterval=='time'){
-
+        if(upload_time){
+            flush();
+            upload_time=false;
+        }
     }
 }
+
+
 function cntTrackLog(){
     var i,cnt=0;
     var err_flag=0;
@@ -299,7 +304,7 @@ function writeTrackLog(){
     track_tool.writeLog('process','Track info, '+JSON.stringify(track_log));
 }
 function flush(){
-    if(!final_result){
+    if(final_result['data'].length==0){
         return;
     }
     if(write2Local){
@@ -527,10 +532,15 @@ function addTrackId(ids){
     console.log('[harmony] new ids:'+ids);
     console.log('Total post id:'+trackids);
 }
-
+var upload_counting;
 function updateMission(assign_mission){
     mission['info']=assign_mission;
     console.log('[harmony] mission'+JSON.stringify(mission));
+    if(uploadInterval&&uploadInterval=='time'&&mission['info']['uploadInterval']['type']!='time'){
+        upload_time=false;
+        clearInterval(upload_counting);
+    }
+
     uploadInterval = mission['info']['uploadInterval']['type'];//設定上傳資料的區間，1.即時 2.定量 3.定時
     if(uploadInterval=='rec_num'){
         REC_NUM=mission['info']['uploadInterval']['option'];
@@ -539,9 +549,16 @@ function updateMission(assign_mission){
         REC_SIZE=mission['info']['uploadInterval']['option'];
     }
     if(uploadInterval=='time'){
-        UPLOAD_TIME=mission['info']['uploadInterval']['option'];
+        if(UPLOAD_TIME!=mission['info']['uploadInterval']['option']){
+            UPLOAD_TIME=mission['info']['uploadInterval']['option'];
+            /*每隔一段時間就會將upload_time flag拉起，所以當一個post追蹤完時，就會檢查該flag是否為true，若為true，代表上傳時間到，進行一次上傳，再將flag=flase*/
+            upload_counting = setInterval(()=>{
+                upload_time=true;
+            },UPLOAD_TIME*1000);
+        }
     }
     WAIT_TIME =  mission['info']['uploadInterval']['wait_time'];
+
 }
 exports.start=start;
 exports.addTrackId=addTrackId;
