@@ -159,6 +159,16 @@ master.route('/mission_report')
     */
     sendResponse(res,'ok',200,track.listCrawlers());
 })
+
+master.route('/service_status')
+.get(function(req,res){
+    var result={};
+    result['crawlers']=track.listCrawlers();
+    result['pools']=listPoolAll();
+    result['schedules']=track.listSchedules();
+    sendResponse(res,'ok',200,result);
+});
+
 /* POST
  * 接收來自data crawler傳來的post id
  *  -需要access_token、欲insert之id以及多久後要追蹤此post
@@ -180,13 +190,17 @@ master.route('/post_id')
     var track_pages = req.body['data']['track_pages'];
     var result=new Object();
     var fail_id=[];
+    var success_id=[];
     track_pages.map(function(post){
         /*該post已存在於tracking list*/
         if(!track.insertIdsToPool(post.id,{created_time:post.created_time,pool_name:post.pool_name})){
             fail_id.push(post.id);
-            //sendResponse(res,'ok',200,'Post id ['+post.id+'] exist.');
+        }
+        else{
+            success_id.push(post.id);
         }
     });
+    result['success']=success_id;
     result['fail']=fail_id;
     //result='Upload fail:['+fail_id+']';
     sendResponse(res,'ok',200,result);
@@ -203,8 +217,8 @@ master.route('/post_id')
     var after = req.query.after;
     var days = req.query.days;
     var result;
-    if(pool_name){
-        result = listPoolByName(pool_name);
+    if(date){
+        result = listPoolByName(date);
     }
     else if(before||after){
         before=track.parsePoolName(before);
@@ -216,7 +230,7 @@ master.route('/post_id')
     }
 
     if(!result){
-        result='Can\' find any track job in pool '+pool_name; 
+        result='Can\' find any track job in pool '+date; 
         sendResponse(res,'fail',200,result);
     }
     else{
@@ -225,16 +239,81 @@ master.route('/post_id')
 
 });
 
-master.route('/status')
+//TODO:
+//  1. Start
+//  2. Stop
+
+master.route('/manage_schedule/:button(on|off)')
 .get(function(req,res){
+    var schedule_name = req.query.schedule_name;//122344,123123,1231....
+    var button = req.params.button;
+    if(schedule_name){
+        schedule_name = schedule_name.split(',');
+    }
+    else{
+        sendResponse(res,'fail',200,'Need schedule name!');
+        return;
+    }
+    var flag;
+    if(button=='on'){
+        console.log('Start:'+schedule_name);
+        schedule_name = schedule_name.split(',');
+        track.startSchedules(schedule_name);        
+    }   
+    else{
+        console.log('Stop:'+schedule_name);
+        schedule_name = schedule_name.split(',');
+        track.stopSchedules(schedule_name);        
+    }
+    sendResponse(res,'ok',200,'Schedule:'+schedule_name+' => '+button);
+})
+
+
+//TODO:
+//  1.Control schedule
+
+master.route('/schedule')
+.get(function(req,res){
+    var schedule_name = req.query.schedule_name;//122344,123123,1231....
     var result={};
-    result['crawlers']=track.listCrawlers();
-    result['pools']=listPoolAll();
-    result['schedules']=track.listSchedules();
+    if(schedule_name){
+        var schedules = schedule_name.split(',');
+        result['schedules']=track.listSchedules(schedules);
+    }
+    else{
+        result['schedules']=track.listSchedules();
+    }
+
     sendResponse(res,'ok',200,result);
-});
+})
+.post(function(req,res){
+
+})
+.delete(function(req,res){
+
+})
+.put(function(req,res){
+    
+})
+//TODO:
+//  1.Control crawler
+master.route('/crawler')
+.get(function(req,res){
+    
+})
+.post(function(req,res){
+
+})
+.delete(function(req,res){
+
+})
+.put(function(req,res){
+    
+})
 
 module.exports = master;
+
+
 function listPoolAll(){
     return track.listPools();
 }

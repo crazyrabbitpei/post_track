@@ -96,7 +96,9 @@ center.post('/data/:datatype(json|gais)',function(req,res){
     });
     req.on('end', function(data){
         /*recording ip and datasize*/
-        fs.appendFile(dir,'\n','utf8',()=>{});
+        if(datatype=='json'){
+            fs.appendFile(dir,'\n','utf8',()=>{});
+        }
         console.log('From '+req.ip+', upload success:'+size);
         writeLog('process','From '+req.ip+', upload success:'+size);
         sendResponse(res,'ok',200,'Upload success:'+size);

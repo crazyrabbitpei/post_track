@@ -4,7 +4,6 @@ var fs = require('fs');
 var dateFormat = require('dateformat');
 var HashMap = require('hashmap');
 var querystring = require('querystring');
-var reactions;
 var crawler_setting = JSON.parse(fs.readFileSync('./service/crawler_setting.json'));
 const center_ip = crawler_setting['center_ip'];
 const center_port = crawler_setting['center_port'];
@@ -17,7 +16,10 @@ const graph_timeout_again = crawler_setting['graph_timeout_again'];
 const retry_limit = crawler_setting['retry_limit'];
 var cnt_retry=0;
 
-//function applyCrawler(crawler_port,ip,port,master_name,master_version,token,timeout,retryt,fin){
+
+
+
+
 function applyCrawler({crawler_port,master_ip,master_port,master_name,master_version,invite_token},fin){
     if(cnt_retry>retry_limit){
         writeLog('err','applyCrawler, retry over limit:'+cnt_retry);
@@ -215,14 +217,14 @@ function uploadTrackPostId({master_ip,master_port,master_name,master_version,acc
 }
 //function listTrack(ip,port,master_name,master_version,token,date,timeout,retryt,fin){
 function listTrack({master_ip,master_port,master_name,master_version,access_token},fin){
-    console.log('http://'+master_ip+':'+master_port+'/'+master_name+'/'+master_version+'/status')
+    console.log('http://'+master_ip+':'+master_port+'/'+master_name+'/'+master_version+'/service_status')
     request({
         method:'GET',
         json:true,
         body:{
             access_token:access_token
         },
-        url:'http://'+master_ip+':'+master_port+'/'+master_name+'/'+master_version+'/status',
+        url:'http://'+master_ip+':'+master_port+'/'+master_name+'/'+master_version+'/service_status',
         timeout:request_timeout*1000
     },(err,res,body)=>{
         if(!err&&(res.statusCode>=200&&res.statusCode<300)){
@@ -335,7 +337,12 @@ function missionReport({data,master_ip,master_port,master_name,master_version,ac
        }
     });
 }
-function trackPost(mission,post_id,fin){
+function trackPost(graph_option,mission,post_id,fin){
+    if(!graph_option){
+        fin('err','trackPost, need graph_option paramater');
+        return;
+    }
+
     if(cnt_retry>retry_limit){
         writeLog('err','trackPost, retry over limit:'+cnt_retry);
         fin('err','trackPost, retry over limit:'+cnt_retry);
@@ -343,8 +350,18 @@ function trackPost(mission,post_id,fin){
         return;
     }
     console.log('Mission:\n'+JSON.stringify(mission,null,2));
-    var site = mission['info']['site']+mission['info']['graph_version']+'/'+post_id+'?fields='+mission['info']['fields']+'&access_token='+mission['token']['graph_token']+'&limit='+mission['info']['limit'];
-    //console.log('\nRequest:'+site);
+    var site = mission['info']['site']+mission['info']['graph_version']+'/'+post_id;
+    if(graph_option=='field1'){
+        site+='?fields='+mission['info']['field1']+'&access_token='+mission['token']['graph_token']+'&limit='+mission['info']['limit'];
+    }
+    else if(graph_option=='field2'){
+        site+='/comments?fields='+mission['info']['field2']+'&access_token='+mission['token']['graph_token']+'&limit='+mission['info']['limit'];
+    }
+    else{
+        fin('err','trackPost, graph_option must be [field1/field2]');
+        return;
+    }
+    console.log('\nRequest:'+site);
     //return;
     request({
         url:site,
@@ -376,11 +393,11 @@ function trackPost(mission,post_id,fin){
                     console.log('Retry [trackPost]:'+err.code);
                     setTimeout(function(){
                         cnt_retry++;
-                        trackPost(mission,post_id,fin)
+                        trackPost(graph_option,mission,post_id,fin);
                     },graph_timeout_again*1000);
                 }
                 else{
-                    writeLog('err','trackPost, '+err);
+                    writeLog('err','trackPost, '+err+', site:'+site);
                     fin('err','trackPost, '+err);
                 }
             }
@@ -389,11 +406,11 @@ function trackPost(mission,post_id,fin){
                     console.log('Retry [trackPost]:'+res.statusCode);
                     setTimeout(function(){
                         cnt_retry++;
-                        trackPost(mission,post_id,fin)
+                        trackPost(graph_option,mission,post_id,fin)
                     },graph_timeout_again*1000);
                 }
                 else{
-                    writeLog('err','trackPost, '+res['statusCode']+', '+res['body']);
+                    writeLog('err','trackPost, '+res['statusCode']+', '+res['body']+', site:'+site);
                     fin('err','trackPost, '+res['statusCode']+', '+res['body']);
                 }
             }
@@ -402,71 +419,79 @@ function trackPost(mission,post_id,fin){
 }
 function transGais(data){
     var i,j,k;
-    var current_post_id;
-    var gaisrec='@Gais_REC\n';
-    var sub_gaisrec='';
-    var keys = Object.keys(data);
-    var sub_keys;
-    var new_name,new_sub_name;
-    for(i=0;i<keys.length;i++){
-        /*字首大寫轉換，以及將欄位名稱轉成指定名字*/
-        new_name = mappingGaisFileds(keys[i],keys[i]);
-        if(keys[i]=='id'){
-            current_post_id = data[keys[i]];
-        }
-        /*會有多種reaction種類，每個種類會分成不同子類別，放在reactions欄位之下*/
-        if(keys[i]=='reactions'){
-            sub_gaisrec='';
-            gaisrec+='@'+new_name+':\n';
-            sub_keys = Object.keys(data[keys[i]]);
-            for(j=0;j<sub_keys.length;j++){
-                //console.log('['+j+'] ['+sub_keys[j]+']'+data[keys[i]][sub_keys[j]]);
-                if(typeof data[keys[i]][sub_keys[j]]==='undefined'||data[keys[i]][sub_keys[j]]==null){
-                    data[keys[i]][sub_keys[j]]='';
-                }
-                /*將欄位名稱轉換成指定名稱*/
-                sub_gaisrec+='\t'+sub_keys[j]+':'+data[keys[i]][sub_keys[j]]+'\n';
-
+    var gaisrec='';
+    data = data['data'];
+    for(let l=0;l<data.length;l++){
+        gaisrec+='@Gais_REC\n';
+        var current_post_id;
+        var sub_gaisrec='';
+        var new_name,new_sub_name;
+        var keys = Object.keys(data[l]);
+        var sub_keys;
+        for(i=0;i<keys.length;i++){
+            /*字首大寫轉換，以及將欄位名稱轉成指定名字*/
+            if(keys[i]=='next_reactions'||keys[i]=='next_comments'||keys[i]=='next_sharedposts'){
+                continue;
             }
-            gaisrec+=sub_gaisrec;
-        }
-        /*因為comments, sharedposts有陣列的議題(多個回應、分享)，需要將每個回應、分享轉換成子欄位*/
-        else if(keys[i]=='comments'||keys[i]=='sharedposts'){
-            gaisrec+='@'+new_name+':\n';
-            for(j=0;j<data[keys[i]].length;j++){
-                sub_gaisrec='\t'+mappingGaisFileds(keys[i],'')+'_'+j;
-                sub_keys = Object.keys(data[keys[i]][j]);
-                for(k=0;k<sub_keys.length;k++){
-                    //console.log('['+j+'] ['+sub_keys[k]+'] '+data[keys[i]][j][sub_keys[k]]);
-                    if(typeof data[keys[i]][j][sub_keys[k]]==='undefined'||data[keys[i]][j][sub_keys[k]]==null){
-                        data[keys[i]][j][sub_keys[k]]='';
+            new_name = mappingGaisFileds(keys[i],keys[i]);
+            if(keys[i]=='id'){
+                current_post_id = data[l][keys[i]];
+            }
+            /*會有多種reaction種類，每個種類會分成不同子類別，放在reactions欄位之下*/
+            if(keys[i]=='reactions'){
+                sub_gaisrec='';
+                gaisrec+='@'+new_name+':\n';
+                sub_keys = Object.keys(data[l][keys[i]]);
+                for(j=0;j<sub_keys.length;j++){
+                    //console.log('['+j+'] ['+sub_keys[j]+']'+data[l][keys[i]][sub_keys[j]]);
+                    if(typeof data[l][keys[i]][sub_keys[j]]==='undefined'||data[l][keys[i]][sub_keys[j]]==null){
+                        data[l][keys[i]][sub_keys[j]]='';
                     }
-                    else if(sub_keys[k]=='message'){
-                        data[keys[i]][j][sub_keys[k]]=data[keys[i]][j][sub_keys[k]].replace(/\n/g,' ');
-                    }
-                    new_sub_name = mappingGaisFileds(sub_keys[k],keys[i]);
-                    sub_gaisrec+=' '+new_sub_name+':'+data[keys[i]][j][sub_keys[k]];
+                    /*將欄位名稱轉換成指定名稱*/
+                    sub_gaisrec+='\t'+sub_keys[j]+':'+data[l][keys[i]][sub_keys[j]]+'\n';
+
                 }
-                gaisrec+=sub_gaisrec+'\n';
+                gaisrec+=sub_gaisrec;
             }
-        }
-        else if(keys[i]=='message'){
-            data[keys[i]] = data[keys[i]].replace(/\n/g,' ');
-            gaisrec+='@'+new_name+':\n'
-            gaisrec+=data[keys[i]]+'\n';
-        }
-
-        /*reactoins, comments, sharedposts以外的欄位*/
-        else{
-            if(typeof data[keys[i]]==='undefined'||data[keys[i]]==null){
-                data[keys[i]]='';
+            /*因為comments, sharedposts有陣列的議題(多個回應、分享)，需要將每個回應、分享轉換成子欄位*/
+            else if(keys[i]=='comments'||keys[i]=='sharedposts'){
+                gaisrec+='@'+new_name+':\n';
+                for(j=0;j<data[l][keys[i]].length;j++){
+                    sub_gaisrec='\t'+mappingGaisFileds(keys[i],'')+'_'+j;
+                    sub_keys = Object.keys(data[l][keys[i]][j]);
+                    for(k=0;k<sub_keys.length;k++){
+                        //console.log('['+j+'] ['+sub_keys[k]+'] '+data[l][keys[i]][j][sub_keys[k]]);
+                        if(typeof data[l][keys[i]][j][sub_keys[k]]==='undefined'||data[l][keys[i]][j][sub_keys[k]]==null){
+                            data[l][keys[i]][j][sub_keys[k]]='';
+                        }
+                        else if(sub_keys[k]=='message'){
+                            data[l][keys[i]][j][sub_keys[k]]=data[l][keys[i]][j][sub_keys[k]].replace(/\n/g,' ');
+                        }
+                        new_sub_name = mappingGaisFileds(sub_keys[k],keys[i]);
+                        sub_gaisrec+=' '+new_sub_name+':'+data[l][keys[i]][j][sub_keys[k]];
+                    }
+                    gaisrec+=sub_gaisrec+'\n';
+                }
             }
-            gaisrec+='@'+new_name+':'+data[keys[i]]+'\n';
+            else if(keys[i]=='message'){
+                data[l][keys[i]] = data[l][keys[i]].replace(/\n/g,' ');
+                gaisrec+='@'+new_name+':\n'
+                gaisrec+=data[l][keys[i]]+'\n';
+            }
 
+            /*reactoins, comments, sharedposts以外的欄位*/
+            else{
+                if(typeof data[l][keys[i]]==='undefined'||data[l][keys[i]]==null){
+                    data[keys[i]]='';
+                }
+                gaisrec+='@'+new_name+':'+data[l][keys[i]]+'\n';
+
+            }
         }
     }
+
+
     return gaisrec;
-    //writeRec('gais',current_post_id,gaisrec);
 }
 function mappingGaisFileds(field,type){
     if(field=='created_time'){
@@ -503,21 +528,12 @@ function mappingGaisFileds(field,type){
     }
     return field;
 }
-
-function initContent(fields,content){
+//TODO:
+//  1.有兩類的回傳格式，一個是有comments的 可以得到回應本身的資訊， 一個是沒有comments的 可以得到貼文本身的資訊 ，要分別處理
+//  2.換成class可能比較好寫
+//  3.要發兩次request分別得到兩種回傳格式，/comments? 稍微與之前不同
+function initContent([...fields],content){
     var i,j,k;
-
-    /*若此篇文章無人分享，則不會有shares欄位，shares參數=0*/
-    /*
-    if(typeof content['shares']!=='undefined'&&content['shares']!=''){
-        this.shares = content['shares']['count'];
-    }
-    else{
-        this.shares = 0;
-    }
-    */
-
-
     /*--------------------------------------------*/
     /*將資訊依照欄位解析出後放進對應的物件和陣列裡*/
     /*--------------------------------------------*/
@@ -528,14 +544,15 @@ function initContent(fields,content){
     var type;
     var temp;
     var data;
+
     this.reactions = {};
     this.comments = [];
     this.sharedposts = [];
     for(i=0;i<keys.length;i++){
         //console.log('['+i+'] '+keys[i]);   
-        if(keys[i]!='comments'&&keys[i]!='sharedposts'&&keys[i]!='reactions'&&keys[i]!='attachments'){
+        if(keys[i]!='comments'&&keys[i]!='sharedposts'&&keys[i]!='reactions'&&keys[i]!='attachment'){
             /*該欄位有其他子欄位，ex:from:{id:'',name:''}，在fields裡可以用fields欄位中是否有{}來判定該欄位是否有子欄位，ex: from{id,name}*/
-            if(fields.indexOf(keys[i]+'{')!=-1){
+            if(fields[0].indexOf(keys[i]+'{')!=-1){
                 if(typeof content[keys[i]]!=='undefined'){
                     sub_keys = Object.keys(content[keys[i]]);
                     for(j=0;j<sub_keys.length;j++){
@@ -558,8 +575,9 @@ function initContent(fields,content){
                 this[keys[i]] = content[keys[i]];
             }
         }
+        //TODO:此處的attachment為貼文本身的附件，要將這段移到data crawler上，蒐集atatchhment資訊 
         /*attachments的回傳結果比較特別，會將結果包在'data' array=> data:[{field1:'',...}]*/
-        else if(keys[i]=='attachments'){
+        else if(keys[i]=='attachment'){
             if(typeof content[keys[i]]['data']!=='undefined'&&content[keys[i]]['data']!=null&&content[keys[i]]['data']!=''){
                 sub_keys = Object.keys(content[keys[i]]['data'][0]['media']['image']);
                 for(j=0;j<sub_keys.length;j++){
@@ -605,6 +623,12 @@ function initContent(fields,content){
                             }
                             else if(sub_keys[k]=='from'){
                                 temp[sub_keys[k]] = data[j][sub_keys[k]]['id'];
+                            }
+                            else if(sub_keys[k]=='attachment'){
+                                let sub_sub_keys = Object.keys(data[j][sub_keys[k]]);
+                                for(let l=0;l<sub_sub_keys.length;l++){
+                                    temp[sub_keys[k]+'_'+sub_sub_keys[l]] = data[j][sub_keys[k]][sub_sub_keys[l]];
+                                }
                             }
                             else{
                                 temp[sub_keys[k]] = data[j][sub_keys[k]];
@@ -914,19 +938,20 @@ function writeLog(type,msg){
     });
 }
 
-function writeRec(type,track_id,msg){
+function writeRec(type,msg){
     var now = new Date();
     var date = dateFormat(now,'yyyymmdd');
     var filename=crawler_setting['rec_dir']+'/';
     /*要將欄位名稱改過，以及字首轉大寫*/
     if(type=='gais'){
-        filename += track_id+'.'+date+crawler_setting['gaisrec_filename'];
+        filename += date+crawler_setting['gaisrec_filename'];
         msg = transGais(msg);
     }
     /*照原本格式儲存資料*/
     else{
-        filename += track_id+'.'+date+crawler_setting['jsonrec_filename'];
+        filename += date+crawler_setting['jsonrec_filename'];
         msg = JSON.stringify(msg,null,3);
+        msg+='\n';
     }
     fs.appendFile(filename,msg,(err)=>{
         if(err){

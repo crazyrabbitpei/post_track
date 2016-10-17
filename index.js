@@ -25,6 +25,9 @@ var crawler_port = crawler_setting['crawler_port'];
 var crawler_name = crawler_setting['crawler_name'];
 var crawler_version = crawler_setting['crawler_version'];
 
+
+var write2Local = crawler_setting['write2Local'];
+
 var master_ip = crawler_setting['master_ip'];
 var master_port = crawler_setting['master_port'];
 var master_name = crawler_setting['master_name'];
@@ -44,14 +47,23 @@ var fail_ids=[];
 
 var start_track,end_track;
 var current_post_id='';//目前正在抓取的id
+/*設定上傳條件*/
+var uploadInterval,rec_size=0,rec_num=0,upload_time=0;
+var WAIT_TIME,REC_NUM,REC_SIZE,UPLOAD_TIME;
 
+var force_upload_flag=0;
 var all_fetch=3;//有兩個資訊有下一頁問題：shareposts, reactions, comments，要等到這兩個都抓完後程式才算完成
 var graph_request=0;//計算總共發了多少Graph api;
-var processing=0;//如果目前有任務還在進行就是1，否則為0
-var final_result;//存放所有結果
+var processing=0;//如果目前有post還在進行追蹤就是1，否則為0
+var single_result;//存放單一筆結果
+var final_result={};//存放所有結果
+final_result['data']=[];
 
 class MyEmitter extends EventEmitter {};
 const myEmitter = new MyEmitter();
+
+/*控制何時將搜集資料upload到master*/
+
 myEmitter.on('nextcomment', (link) => {
     //console.log('nextcomment=>'+link);
     graph_request++;
@@ -62,11 +74,11 @@ myEmitter.on('nextcomment', (link) => {
         }
         else{
             var i;
-            var next_result = new track_tool.parseComment(mission['info']['fields'],msg);
+            var next_result = new track_tool.parseComment(mission['info']['field2'],msg);
             for(i=0;i<next_result.comments.length;i++){
-                final_result.comments.push(next_result.comments[i]);
+                single_result.comments.push(next_result.comments[i]);
             }
-            //final_result.next_comments = next_result.next_comments;
+            //single_result.next_comments = next_result.next_comments;
             if(next_result.next_comments!=null){
                 myEmitter.emit('nextcomment',next_result.next_comments);
             }
@@ -87,12 +99,12 @@ myEmitter.on('nextsharedpost', (link) => {
             myEmitter.emit('one_post_done',{track_status:'nexterr',data:link});
         }
         else{
-            var next_result = new track_tool.parseSharedpost(mission['info']['fields'],msg);
+            var next_result = new track_tool.parseSharedpost(mission['info']['field1'],msg);
             var i;
             for(i=0;i<next_result.sharedposts.length;i++){
-                final_result.sharedposts.push(next_result.sharedposts[i]);
+                single_result.sharedposts.push(next_result.sharedposts[i]);
             }
-            //final_result.next_sharedposts = next_result.next_sharedposts;
+            //single_result.next_sharedposts = next_result.next_sharedposts;
             if(next_result.next_sharedposts!=null){
                 myEmitter.emit('nextcomment',next_result.next_sharedposts);
             }
@@ -113,14 +125,14 @@ myEmitter.on('nextreaction', (link) => {
             myEmitter.emit('one_post_done',{track_status:'nexterr',data:link});
         }
         else{
-            var next_result = new track_tool.parseReaction(mission['info']['fields'],msg);
+            var next_result = new track_tool.parseReaction(mission['info']['field1'],msg);
             var i;
             var reac_type = Object.keys(next_result.reactions);
             for(i=0;i<reac_type.length;i++){
-                if(typeof final_result.reactions[reac_type[i]]==='undefined'){
-                    final_result.reactions[reac_type[i]]=0;
+                if(typeof single_result.reactions[reac_type[i]]==='undefined'){
+                    single_result.reactions[reac_type[i]]=0;
                 }
-                final_result.reactions[reac_type[i]]+=next_result.reactions[reac_type[i]];
+                single_result.reactions[reac_type[i]]+=next_result.reactions[reac_type[i]];
             }
             if(next_result.next_reactions!=null){
                 myEmitter.emit('nextreaction',next_result.next_reactions);
@@ -142,11 +154,20 @@ myEmitter.on('nextreaction', (link) => {
 *   3.err:完全追蹤失敗
 * */
 
+
 myEmitter.on('one_post_done',({track_status,data})=>{
-    end_track = new Date();
     if(track_status=='ok'){
-        /*將資料存到data server*/
-        flush();
+        /*計算出share, reactions, comment總數*/
+        if(cntTrackLog()){
+            /*當有新的一筆資料產生時，放入資料水桶中，等待被upload到master*/
+            resultBucket();
+            /*將追蹤資訊存到local端*/
+            writeTrackLog();
+        }
+        else{
+            fs.appendFile('./check_one_post_done','id:'+current_post_id+' not have single_result\n',()=>{});
+        }
+        
         /*記錄追蹤成功的id*/
         success_ids.push(current_post_id);
         /*開始搜集下一個*/
@@ -166,7 +187,7 @@ myEmitter.on('one_post_done',({track_status,data})=>{
 function reset(){
     all_fetch=3;
     graph_request=0;
-    final_result=null;
+    single_result=null;
     processing=0;//該貼文追蹤完畢，可以繼續接收下個任務
 
 }
@@ -184,6 +205,15 @@ function nextTrack(){
         }
         else if(_version=='test1'||_version=='test2'){
             console.log('All post id have been tracked, waiting for next mission!');
+            /*現有追蹤id已搜集完畢，但是資料水桶裡還有尚未被上傳的資料，可能原因：尚未湊滿上傳條件(rec_num, rec_size...)，需等待下一批任務來湊滿條件，但也可能沒有下一批任務，故需要設定一等待區間，若超過這個區間沒有湊滿上傳條件，則忽略條件 直接上傳和清空資料水桶裡的資料*/
+            if(final_result['data'].length!=0){
+                force_upload_flag=1;//若在時間內沒有接收到下一批任務(force_upload_flag=0)，則代表條件可能暫時不會滿足，所以就強制上傳現有資料
+                setTimeout(()=>{
+                    if(force_upload_flag==1){
+                        flush();
+                    }
+                },WAIT_TIME*1000);
+            }
             /*向track master通知任務已完成*/
             var mission_status='done';
             var data={};
@@ -211,56 +241,82 @@ function nextTrack(){
 
 
 }
-function flush(){
+
+function resultBucket(){
+    rec_num++;
+    rec_size+=Buffer.byteLength(single_result);
+    /*將當前資料合併到final_result*/
+    final_result['data'].push(single_result);
+    //final_result[current_post_id]=single_result;
+    
+    /*將資料存到data server*/
+    if(uploadInterval=='real_time'){
+        flush();
+    }
+    else if(uploadInterval=='rec_size'){
+        if(rec_size>REC_SIZE){
+            flush();
+        }
+    }
+    else if(uploadInterval=='rec_num'){
+        if(rec_num>=REC_NUM){
+            flush();
+        }
+    }
+    else if(uploadInterval=='time'){
+
+    }
+}
+function cntTrackLog(){
     var i,cnt=0;
     var err_flag=0;
-    if(final_result){
-        var duration = end_track.getTime()-start_track.getTime();
-        var reac_type = Object.keys(final_result.reactions);
-        console.log('==ok==ok==['+current_post_id+']==ok==ok==')
-        //console.log('--All reactions--');
+    console.log('==ok==ok==['+current_post_id+']==ok==ok==')
+    if(single_result){
+        var reac_type = Object.keys(single_result.reactions);
         for(i=0;i<reac_type.length;i++){
-            //console.log('['+reac_type[i]+'] '+final_result.reactions[reac_type[i]]);
-            cnt+=final_result.reactions[reac_type[i]];
+            cnt+=single_result.reactions[reac_type[i]];
         }
-        final_result.reactions_cnt = cnt;
-        //console.log('final_result.reactions_cnt:'+final_result.reactions_cnt);
-
-        //console.log('--All comments--');
-        final_result.comments_cnt = final_result.comments.length;
-        //console.log('final_result.comments_cnt:'+final_result.comments_cnt);
-
-        //console.log('--All sharedposts--');
-        final_result.sharedposts_cnt = final_result.sharedposts.length;
-        //console.log('final_result.sharedposts_cnt:'+final_result.sharedposts_cnt);
-        /*
-           for(i=0;i<final_result.comments.length;i++){
-           console.log('['+i+'] '+final_result.comments[i].message);
-           }
-           */
-
-        //console.log('--Total graph request ['+graph_request+'] --');
-     
-        /*記錄追蹤資訊*/
-        duration /=1000;
-        var track_log={};
-        track_log['post_id']=current_post_id;
-        track_log['track_time']=duration;
-        track_log['comments_cnt']=final_result.comments_cnt;
-        track_log['reactions_cnt']=final_result.reactions_cnt;
-        track_log['sharedposts_cnt']=final_result.sharedposts_cnt;
-        track_tool.writeLog('process','Track info, '+JSON.stringify(track_log));
-        
-        track_tool.writeRec(mission['info']['datatype'],current_post_id,final_result);
-        track_tool.uploadTrackPostData(mission['token']['access_token'],{data:final_result,datatype:mission['info']['datatype']},(flag,msg)=>{
-            if(flag=='ok'){
-                console.log(msg);
-            }
-            else if(flag=='err'){
-                console.log(msg);
-            }
-        });
+        single_result.reactions_cnt = cnt;
+        single_result.comments_cnt = single_result.comments.length;
+        single_result.sharedposts_cnt = single_result.sharedposts.length;
+        return true;
     }
+    else{
+        return false;
+    }
+}
+function writeTrackLog(){
+    end_track = new Date();
+    var duration = end_track.getTime()-start_track.getTime();
+    /*記錄追蹤資訊*/
+    duration /=1000;
+    var track_log={};
+    track_log['post_id']=current_post_id;
+    track_log['track_time']=duration;
+    track_log['comments_cnt']=single_result.comments_cnt;
+    track_log['reactions_cnt']=single_result.reactions_cnt;
+    track_log['sharedposts_cnt']=single_result.sharedposts_cnt;
+    track_tool.writeLog('process','Track info, '+JSON.stringify(track_log));
+}
+function flush(){
+    if(!final_result){
+        return;
+    }
+    if(write2Local){
+        track_tool.writeRec(mission['info']['datatype'],final_result);
+    }
+    track_tool.uploadTrackPostData(mission['token']['access_token'],{data:final_result,datatype:mission['info']['datatype']},(flag,msg)=>{
+        if(flag=='ok'){
+            console.log(msg);
+        }
+        else if(flag=='err'){
+            console.log(msg);
+        }
+        final_result={};//存放所有結果
+        final_result['data']=[];
+        rec_num=0;
+        rec_size=0;
+    });
 }
 /**
  * --階段--
@@ -271,7 +327,7 @@ function flush(){
  *      r
  *      - error handler
  *      - retry handler
- *  - final_result formater
+ *  - single_result formater
  *  - track_posts array manager
  *  - next page manager
  * 正式模式(formal)，需要監聽master傳送的資料，包含可搜集的track_posts和mission內容，並能將資料正確回傳至master，且告知當前任務已完成
@@ -306,7 +362,7 @@ else{
                 /*client同時扮演master，沒有這行的話，就是一個完整的post track crawler*/
                 //app.use('/'+master_name+'/'+master_version,master);
                 /* TODO
-                *  1. 要將搜集到的訊息上傳至資料中心存放
+                *  ok 1. 要將搜集到的訊息上傳至資料中心存放
                 *  2. 當程式停止時，主動向master發送停止訊息
                 *  3. 將從master那得來的設定檔和任務儲存到temp_pool裡，若有重新認證的情況時再將新的覆蓋回去
                 */
@@ -385,6 +441,7 @@ else{
                     }
                     else{
                         console.log('Can\'t connect to Data Center!');
+                        process.exit();
                     }
                 });
             }
@@ -403,62 +460,88 @@ function start(track_id){
     console.log('=>==>==>=['+track_id+']=>==>==>=')
     current_post_id = track_id;
     graph_request++;
-    track_tool.trackPost(mission,track_id,(flag,msg)=>{
+    /*先抓貼文的基本資訊，ex:有幾個人按讚、有多少人分項...*/
+    track_tool.trackPost('field1',mission,track_id,(flag,msg)=>{
         if(flag=='err'){
             console.log('[trackPost err] '+msg);
             myEmitter.emit('one_post_done',{track_status:'err',data:''});
         }
         else{
-            final_result = new track_tool.initContent(mission['info']['fields'],msg);
+            /*接著抓回文的資訊，ex:貼文內容、有多少喜歡這篇回文...*/
+            track_tool.trackPost('field2',mission,track_id,(flag,comments)=>{
+                if(flag=='err'){
+                    console.log('[trackPost err] '+msg);
+                    myEmitter.emit('one_post_done',{track_status:'err',data:''});
+                }
+                else{
+                    if(comments['data']!=''){
+                        msg['comments']=comments;
+                    }
+                    single_result = new track_tool.initContent([mission['info']['field1'],mission['info']['field2']],msg);
 
-            /*搜集下一頁的comments*/
-            if(final_result.next_comments!=null){
-                myEmitter.emit('nextcomment',final_result.next_comments);
-                final_result.next_comments=null;
-            }
-            else{
-                all_fetch--;
-                if(all_fetch==0){
-                    myEmitter.emit('one_post_done',{track_status:'ok',data:''});
-                }
-            }
-            /*搜集下一頁的sharedposts*/
-            if(final_result.next_sharedposts!=null){
-                myEmitter.emit('nextsharedpost',final_result.next_sharedposts);                   
-                final_result.next_sharedposts=null;
-            }
-            else{
-                all_fetch--;
-                if(all_fetch==0){
-                    myEmitter.emit('one_post_done',{track_status:'ok',data:''});
-                }
-            }
-            /*搜集下一頁reactions*/
-            var i;
-            var reac_type = Object.keys(final_result.reactions);
+                    /*搜集下一頁的comments*/
+                    if(single_result.next_comments!=null){
+                        myEmitter.emit('nextcomment',single_result.next_comments);
+                        single_result.next_comments=null;
+                    }
+                    else{
+                        all_fetch--;
+                        if(all_fetch==0){
+                            myEmitter.emit('one_post_done',{track_status:'ok',data:''});
+                        }
+                    }
+                    /*搜集下一頁的sharedposts*/
+                    if(single_result.next_sharedposts!=null){
+                        myEmitter.emit('nextsharedpost',single_result.next_sharedposts);                   
+                        single_result.next_sharedposts=null;
+                    }
+                    else{
+                        all_fetch--;
+                        if(all_fetch==0){
+                            myEmitter.emit('one_post_done',{track_status:'ok',data:''});
+                        }
+                    }
+                    /*搜集下一頁reactions*/
+                    var reac_type = Object.keys(single_result.reactions);
 
-            //console.log('link:'+JSON.stringify(final_result.next_reactions));
-            if(final_result.next_reactions!=null){
-                myEmitter.emit('nextreaction',final_result.next_reactions); 
-                final_result.next_reactions=null;
-            }
-            else{
-                all_fetch--;
-                if(all_fetch==0){
-                    myEmitter.emit('one_post_done',{track_status:'ok',data:''});
+                    //console.log('link:'+JSON.stringify(single_result.next_reactions));
+                    if(single_result.next_reactions!=null){
+                        myEmitter.emit('nextreaction',single_result.next_reactions); 
+                        single_result.next_reactions=null;
+                    }
+                    else{
+                        all_fetch--;
+                        if(all_fetch==0){
+                            myEmitter.emit('one_post_done',{track_status:'ok',data:''});
+                        }
+                    }
                 }
-            }
+
+            });
         }
     });
 }
 function addTrackId(ids){
+    force_upload_flag=0;//有新的任務，所以如果在上一個任務中 資料水桶裡有尚未被上傳的資料 在master指定上傳時間到時 也不會強制上傳，而是會等到條件滿足才會上傳
     trackids.push(ids);
     console.log('[harmony] new ids:'+ids);
     console.log('Total post id:'+trackids);
 }
+
 function updateMission(assign_mission){
     mission['info']=assign_mission;
     console.log('[harmony] mission'+JSON.stringify(mission));
+    uploadInterval = mission['info']['uploadInterval']['type'];//設定上傳資料的區間，1.即時 2.定量 3.定時
+    if(uploadInterval=='rec_num'){
+        REC_NUM=mission['info']['uploadInterval']['option'];
+    }
+    if(uploadInterval=='rec_size'){
+        REC_SIZE=mission['info']['uploadInterval']['option'];
+    }
+    if(uploadInterval=='time'){
+        UPLOAD_TIME=mission['info']['uploadInterval']['option'];
+    }
+    WAIT_TIME =  mission['info']['uploadInterval']['wait_time'];
 }
 exports.start=start;
 exports.addTrackId=addTrackId;
