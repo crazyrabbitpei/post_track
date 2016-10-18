@@ -9,6 +9,7 @@ var master_tool = require('./tool/master_tool.js');
 var crawler = require('./crawler.js');
 var master = require('./master.js');
 
+var CronJob = require('cron').CronJob;
 var EventEmitter = require('events');
 var querystring = require('querystring');
 var fs = require('graceful-fs');
@@ -48,8 +49,8 @@ var fail_ids=[];
 var start_track,end_track;
 var current_post_id='';//目前正在抓取的id
 /*設定上傳條件*/
-var uploadInterval,rec_size=0,rec_num=0,upload_time=false;
-var WAIT_TIME,REC_NUM,REC_SIZE,UPLOAD_TIME;
+var upload_schedule,rec_size=0,rec_num=0,upload_process=false;
+var UPLOAD_INTERVAL,WAIT_TIME,REC_NUM,REC_SIZE,UPLOAD_TIME;
 
 var force_upload_flag=0;
 var all_fetch=3;//有兩個資訊有下一頁問題：shareposts, reactions, comments，要等到這兩個都抓完後程式才算完成
@@ -243,30 +244,33 @@ function nextTrack(){
 
 function resultBucket(){
     rec_num++;
-    rec_size+=Buffer.byteLength(single_result);
+    rec_size+=Buffer.byteLength(JSON.stringify(single_result));
+    
+    fs.appendFile('./check_one_post_done','id:'+current_post_id+' total size:'+rec_size+' single size:'+Buffer.byteLength(single_result)+'\n',()=>{});
     /*將當前資料合併到final_result*/
     final_result['data'].push(single_result);
     //final_result[current_post_id]=single_result;
     
     /*將資料存到data server*/
-    if(uploadInterval=='real_time'){
+    if(UPLOAD_INTERVAL=='real_time'){
         flush();
     }
-    else if(uploadInterval=='rec_size'){
+    /*TODO:無法成功設定*/
+    else if(UPLOAD_INTERVAL=='rec_size'){
         if(rec_size>=REC_SIZE){
             flush();
         }
     }
-    else if(uploadInterval=='rec_num'){
+    else if(UPLOAD_INTERVAL=='rec_num'){
         if(rec_num>=REC_NUM){
             flush();
         }
     }
     /*TODO:testing*/
-    else if(uploadInterval=='time'){
-        if(upload_time){
+    else if(UPLOAD_INTERVAL=='time'){
+        if(upload_process){
             flush();
-            upload_time=false;
+            upload_process=false;
         }
     }
 }
@@ -304,9 +308,11 @@ function writeTrackLog(){
     track_tool.writeLog('process','Track info, '+JSON.stringify(track_log));
 }
 function flush(){
+    
     if(final_result['data'].length==0){
         return;
     }
+
     if(write2Local){
         track_tool.writeRec(mission['info']['datatype'],final_result);
     }
@@ -532,32 +538,67 @@ function addTrackId(ids){
     console.log('[harmony] new ids:'+ids);
     console.log('Total post id:'+trackids);
 }
-var upload_counting;
+
 function updateMission(assign_mission){
     mission['info']=assign_mission;
     console.log('[harmony] mission'+JSON.stringify(mission));
-    if(uploadInterval&&uploadInterval=='time'&&mission['info']['uploadInterval']['type']!='time'){
-        upload_time=false;
-        clearInterval(upload_counting);
+    if(UPLOAD_INTERVAL&&UPLOAD_INTERVAL=='time'&&mission['info']['UPLOAD_INTERVAL']['type']!='time'){
+        upload_process=false;
+        upload_schedule.stop();
     }
 
-    uploadInterval = mission['info']['uploadInterval']['type'];//設定上傳資料的區間，1.即時 2.定量 3.定時
-    if(uploadInterval=='rec_num'){
-        REC_NUM=mission['info']['uploadInterval']['option'];
+    UPLOAD_INTERVAL = mission['info']['UPLOAD_INTERVAL']['type'];//設定上傳資料的區間，1.即時 2.定量 3.定時
+    if(UPLOAD_INTERVAL=='rec_num'){
+        REC_NUM=mission['info']['UPLOAD_INTERVAL']['option'];
     }
-    if(uploadInterval=='rec_size'){
-        REC_SIZE=mission['info']['uploadInterval']['option'];
+    if(UPLOAD_INTERVAL=='rec_size'){
+        REC_SIZE=mission['info']['UPLOAD_INTERVAL']['option'];
     }
-    if(uploadInterval=='time'){
-        if(UPLOAD_TIME!=mission['info']['uploadInterval']['option']){
-            UPLOAD_TIME=mission['info']['uploadInterval']['option'];
-            /*每隔一段時間就會將upload_time flag拉起，所以當一個post追蹤完時，就會檢查該flag是否為true，若為true，代表上傳時間到，進行一次上傳，再將flag=flase*/
+    if(UPLOAD_INTERVAL=='time'){
+        if(UPLOAD_TIME!=mission['info']['UPLOAD_INTERVAL']['option']){
+            UPLOAD_TIME=mission['info']['UPLOAD_INTERVAL']['option'];
+            /*每隔一段時間就會將upload_process flag拉起，所以當一個post追蹤完時，就會檢查該flag是否為true，若為true，代表上傳時間到，進行一次上傳，再將flag=flase*/
+            upload_schedule = new CronJob({
+                cronTime:UPLOAD_TIME,
+                onTick:function(){
+                    console.log('UPLOAD_INTERVAL:'+UPLOAD_INTERVAL+' UPLOAD_TIME:'+UPLOAD_TIME);
+                    if(final_result['data'].length==0){
+                        console.log('\tData bucket is empty! Waiting for ['+WAIT_TIME+'] secs to check again the bucket...');
+                        /*沒有可以傳出的資料，則代表兩主原因，1.資料消化速率太快/搜集速度太慢 2.沒有接收到任何任務*/
+                        upload_schedule.stop();
+
+                        /*等待一段時間，若時間內有等到新資料則將上傳行程再次啟動 並立即上傳現有資料，若無，則將UPLOAD_TIME清空和將upload_process設為true，代表若有一個追蹤工作完成時 會立即flush並開啟行程，以及代表至少要等到拿到下一任務時才會啟動上傳行程*/
+                        setTimeout(()=>{
+                            console.log('Checking the bucket...');
+                            if(final_result['data'].length!=0){
+                                console.log('\tFind some data in bucket! Flush them immediately. And restrat upload_schedule.')
+                                flush();
+                                upload_schedule.start();
+                            }
+                            else{
+                                console.log('\tData bucket still empty, the next data-upload schedule will restart while receiving next missison, ane will flush data immediately when a track job is finished also restart the data-upload schedule...')
+                                upload_process=true;
+                                UPLOAD_TIME='restart';//清空該參數後，當接到下一批任務時就會重設上傳行程，故在接到新任務前crawler都是停滯上傳狀態
+                            }
+                        },WAIT_TIME*1000);
+                    }
+                    else{
+                        console.log('Start upload processing...');
+                        flush();
+
+                    }
+                },
+                start:true,
+                timeZone:'Asia/Taipei'
+            });
+            /*
             upload_counting = setInterval(()=>{
-                upload_time=true;
+                upload_process=true;
             },UPLOAD_TIME*1000);
+            */
         }
     }
-    WAIT_TIME =  mission['info']['uploadInterval']['wait_time'];
+    WAIT_TIME =  mission['info']['UPLOAD_INTERVAL']['wait_time'];
 
 }
 exports.start=start;
