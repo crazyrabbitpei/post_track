@@ -16,6 +16,7 @@ var dateFormat = require('dateformat');
 var HashMap = require('hashmap');
 var master = express.Router();
 
+var data_crawler = new Map();
 var graph_tokens = new Map();
 var track_ids = [];
 var track = new master_tool.Track();
@@ -33,18 +34,94 @@ loadIds();
 /*給予demo用的通行証*/
 //crawler_info.set(master_setting['demo_token'],new Object());
 
+
+
 /*所有的request都必須被檢查其access token*/
 master.use(function(req,res,next){
-    var access_token = req.body['access_token'];
-    if(!access_token){
-        access_token = req.query['access_token'];
+    /*master專用API*/
+    if(((req.path=='/dataCrawler/new')||(req.path=='/dataCrawler/delete')||(req.path=='/dataCrawler/clearall'))){
+        if(req.query['control_token']!=master_setting['control_token']){
+            console.log('Path:'+req.path+' [Matser API] err token ['+req.params['control_token']+']');
+            sendResponse(res,'token_err','','');
+        }
+        else{
+            next();
+        }
     }
-    if((!track.getCrawler(access_token)&&req.path!='/apply')||(access_token!=master_setting['invite_token'])&&req.path=='/apply'){
-        console.log('err token ['+access_token+']');
-        sendResponse(res,'token_err','','');
-        return;
+    /*data crawler上傳post id API*/
+    else if(req.path=='/post_id'){
+        var access_token = req.body['access_token'];
+        if(!access_token){
+            access_token = req.query['access_token'];
+        }
+        if(!data_crawler.get(access_token)){
+            console.log('Path:'+req.path+' [Data crawler API] err token ['+req.params['control_token']+']');
+            sendResponse(res,'token_err','','');
+        }
+        else{
+            next();
+        }
     }
-    next();
+    /*其他track master以及查詢用API*/
+    else{
+        var access_token = req.body['access_token'];
+        if(!access_token){
+            access_token = req.query['access_token'];
+        }
+        if((!track.getCrawler(access_token)&&req.path!='/apply')||(access_token!=master_setting['invite_token'])&&req.path=='/apply'){
+            console.log('Path:'+req.path+' [Track crawler and normal API] err token ['+access_token+']');
+            sendResponse(res,'token_err','','');
+        }
+        else{
+            next();
+        }
+    }
+});
+/*master之間用的API*/
+master.get('/dataCrawler/:action(new|delete)',function(req,res){
+    var action = req.params.action;
+    var tokens = req.query.tokens;
+    var token = tokens.split(',');
+    var result=[];
+    var msg;
+    for(let i=0;i<token.length;i++){
+        msg={};
+        if(action=='new'&&data_crawler.has(token[i])){
+            msg['action']='new';
+            msg['token']=token[i];
+            msg['status']='false';
+            msg['msg']='Token ['+token[i]+'] has exists!';
+            result.push(msg);
+            continue;
+        }
+
+        else if(action=='delete'&&!data_crawler.has(token[i])){
+            msg['action']='delete';
+            msg['token']=token[i];
+            msg['status']='false';
+            msg['msg']='Token ['+token[i]+'] not exists!';
+            result.push(msg);
+            continue;
+        }
+
+        if(action=='new'){
+            data_crawler.set(token[i],new Date());
+            msg['action']='new';
+            msg['token']=token[i];
+            msg['status']='ok';
+            msg['msg']='Success add data crawler token ['+token[i]+']!';
+            result.push(msg);
+        }
+        else if(action=='delete'){
+            data_crawler.delete(token[i]);
+            msg['action']='delete';
+            msg['token']=token[i];
+            msg['status']='ok';
+            msg['msg']='Success delete data crawler token ['+token[i]+']!';
+            result.push(msg);
+        }
+    }
+    sendResponse(res,'ok',200,result);
 });
 /*
  * POST
@@ -83,6 +160,7 @@ master.post('/apply',function(req,res){
     //console.log('Master:\n'+JSON.stringify(track.listCrawlers(),null,3));
 
 });
+
 /*
  * POST
  * crawler回報任務已完成
@@ -247,6 +325,7 @@ master.route('/manage_schedule/:button(on|off)')
 .get(function(req,res){
     var schedule_name = req.query.schedule_name;//122344,123123,1231....
     var button = req.params.button;
+    var flag;
     if(schedule_name){
         schedule_name = schedule_name.split(',');
     }
@@ -254,15 +333,13 @@ master.route('/manage_schedule/:button(on|off)')
         sendResponse(res,'fail',200,'Need schedule name!');
         return;
     }
-    var flag;
+
     if(button=='on'){
         console.log('Start:'+schedule_name);
-        schedule_name = schedule_name.split(',');
         track.startSchedules(schedule_name);        
     }   
     else{
         console.log('Stop:'+schedule_name);
-        schedule_name = schedule_name.split(',');
         track.stopSchedules(schedule_name);        
     }
     sendResponse(res,'ok',200,'Schedule:'+schedule_name+' => '+button);
@@ -311,7 +388,7 @@ master.route('/crawler')
     
 })
 
-module.exports = master;
+exports.master = master;
 
 
 function listPoolAll(){

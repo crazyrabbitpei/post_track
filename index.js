@@ -7,7 +7,7 @@
 var track_tool = require('./tool/track_tool.js');
 var master_tool = require('./tool/master_tool.js');
 var crawler = require('./crawler.js');
-var master = require('./master.js');
+var master = require('./master.js').master;
 
 var CronJob = require('cron').CronJob;
 var EventEmitter = require('events');
@@ -52,7 +52,7 @@ var current_post_id='';//目前正在抓取的id
 var upload_schedule,rec_size=0,rec_num=0,upload_process=false;
 var UPLOAD_INTERVAL,WAIT_TIME,REC_NUM,REC_SIZE,UPLOAD_TIME;
 
-var force_upload_flag=0;
+var force_upload_flag=false;
 var all_fetch=3;//有兩個資訊有下一頁問題：shareposts, reactions, comments，要等到這兩個都抓完後程式才算完成
 var graph_request=0;//計算總共發了多少Graph api;
 var processing=0;//如果目前有post還在進行追蹤就是1，否則為0
@@ -207,12 +207,14 @@ function nextTrack(){
             console.log('All post id have been tracked, waiting for next mission!');
             /*現有追蹤id已搜集完畢，但是資料水桶裡還有尚未被上傳的資料，可能原因：尚未湊滿上傳條件(rec_num, rec_size...)，需等待下一批任務來湊滿條件，但也可能沒有下一批任務，故需要設定一等待區間，若超過這個區間沒有湊滿上傳條件，則忽略條件 直接上傳和清空資料水桶裡的資料*/
             if(final_result['data'].length!=0){
-                force_upload_flag=1;//若在時間內沒有接收到下一批任務(force_upload_flag=0)，則代表條件可能暫時不會滿足，所以就強制上傳現有資料
-                setTimeout(()=>{
-                    if(force_upload_flag==1){
-                        flush();
-                    }
-                },WAIT_TIME*1000);
+                if(!force_upload_flag){
+                    force_upload_flag=true;//若在時間內沒有接收到下一批任務(force_upload_flag=false)，則代表條件可能暫時不會滿足，所以就強制上傳現有資料
+                    setTimeout(()=>{
+                        if(force_upload_flag){
+                            flush();
+                        }
+                    },WAIT_TIME*1000);
+                }
             }
             /*向track master通知任務已完成*/
             var mission_status='done';
@@ -251,24 +253,29 @@ function resultBucket(){
     final_result['data'].push(single_result);
     //final_result[current_post_id]=single_result;
     
+    track_tool.writeLog('process','Data bucket info, current fecth id:'+current_post_id+' total size:'+rec_size+' toal num:'+rec_num+' single size:'+Buffer.byteLength(single_result));
     /*將資料存到data server*/
     if(UPLOAD_INTERVAL=='real_time'){
+        track_tool.writeLog('process','Upload by ['+UPLOAD_INTERVAL+']! total size:'+rec_size+' toal num:'+rec_num);
         flush();
     }
     /*TODO:無法成功設定*/
     else if(UPLOAD_INTERVAL=='rec_size'){
         if(rec_size>=REC_SIZE){
+            track_tool.writeLog('process','Upload by ['+UPLOAD_INTERVAL+']! total size:'+rec_size+' toal num:'+rec_num);
             flush();
         }
     }
     else if(UPLOAD_INTERVAL=='rec_num'){
         if(rec_num>=REC_NUM){
+            track_tool.writeLog('process','Upload by ['+UPLOAD_INTERVAL+']! total size:'+rec_size+' toal num:'+rec_num);
             flush();
         }
     }
     /*TODO:testing*/
     else if(UPLOAD_INTERVAL=='time'){
         if(upload_process){
+            track_tool.writeLog('process','Upload by ['+UPLOAD_INTERVAL+']! total size:'+rec_size+' toal num:'+rec_num);
             flush();
             upload_process=false;
         }
@@ -390,13 +397,27 @@ else{
 
                 });
             }
-            /*此模式為了要測試master的manageTracking API，需要準備一個偽data crawler來抓取fb資料，並呼叫manageTracking API來將抓取到的post id, created_time塞給track master做儲存*/
             else if(_version=='test2'){
                 mission['token']['access_token']=crawler_setting['mission']['access_token'];
                 master_tool.connect2DataCenter((flag,msg)=>{
                     console.log('connect2DataCenter, '+msg);
                     if(flag){
                         app.use('/'+master_name+'/'+master_version,master);
+                    }
+                    else{
+                        console.log('Can\'t connect to Data Center!');
+                        process.exit();
+                    }
+                });
+            }
+            /*此模式為了要測試master的manageTracking API，需要準備一個偽data crawler來抓取fb資料，並呼叫manageTracking API來將抓取到的post id, created_time塞給track master做儲存*/
+            else if(_version=='test3'){
+                mission['token']['access_token']=crawler_setting['mission']['access_token'];
+                master_tool.connect2DataCenter((flag,msg)=>{
+                    console.log('connect2DataCenter, '+msg);
+                    if(flag){
+                        app.use('/'+master_name+'/'+master_version,master);
+                        //app.use('/'+master_name+'/'+master_version+'/master',master4master);
                         /*準備測試資料*/
                         var data ={
                             track_pages:[]

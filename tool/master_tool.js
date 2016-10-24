@@ -148,7 +148,7 @@ class Track{
         return results;
     }
     /*
-    * 回傳fasle時機:
+    * 回傳false時機:
     *   1.沒有insert id 
     *   2.指定的pool_name不存在
     * 流程:
