@@ -203,7 +203,7 @@ function nextTrack(){
         if(_version=='test'){
             console.log('All post id have been tracked.');
         }
-        else if(_version=='test1'||_version=='test2'){
+        else if(_version=='test1'||_version=='test2'||_version=='test3'){
             console.log('All post id have been tracked, waiting for next mission!');
             /*現有追蹤id已搜集完畢，但是資料水桶裡還有尚未被上傳的資料，可能原因：尚未湊滿上傳條件(rec_num, rec_size...)，需等待下一批任務來湊滿條件，但也可能沒有下一批任務，故需要設定一等待區間，若超過這個區間沒有湊滿上傳條件，則忽略條件 直接上傳和清空資料水桶裡的資料*/
             if(final_result['data'].length!=0){
@@ -294,7 +294,7 @@ function cntTrackLog(){
         }
         single_result.reactions_cnt = cnt;
         single_result.comments_cnt = single_result.comments.length;
-        single_result.sharedposts_cnt = single_result.sharedposts.length;
+        single_result.shared_posts_cnt = single_result.sharedposts.length;
         return true;
     }
     else{
@@ -417,58 +417,20 @@ else{
                     console.log('connect2DataCenter, '+msg);
                     if(flag){
                         app.use('/'+master_name+'/'+master_version,master);
-                        //app.use('/'+master_name+'/'+master_version+'/master',master4master);
-                        /*準備測試資料*/
-                        var data ={
-                            track_pages:[]
-                        }
-                        var i,rec_num=5;
-                        var id_max=100000;
-                        var id_min=200000;
-                        var now,plus,after;;
-                        var date_max=0;
-                        var date_min=-14;
-                        var track_after;
-                        var track_max=30;
-                        var track_min=-30;
-                        var post=new Object();
-                        for(i=0;i<rec_num;i++){
-                            now = new Date();
-                            plus = (Math.floor(Math.random()*(date_max-date_min+1)+date_min));
-                            after = now.getDate()+plus;
-                            track_after = Math.floor(Math.random()*(track_max-track_min+1)+track_min);
-                            post['id']=Math.floor(Math.random()*(id_max-id_min+1)+id_min);
-                            post['created_time']=new Date(now.setDate(after));
-                            post['pool_name']='test1';
-                            //post['track_time']=new Date(now.setDate(now.getDate()+track_after));
-                            data['track_pages'].push(post);
-                            post=new Object();
-                        }
-                        // console.log('Client:'+JSON.stringify(data));
-
-                        track_tool.uploadTrackPostId({master_ip,master_port,master_name,master_version,access_token:mission['token']['access_token'],data},(flag,msg)=>{
+                        track_tool.applyCrawler({crawler_port,master_ip,master_port,master_name,master_version,invite_token},(flag,msg)=>{
                             if(flag=='ok'&&msg&&msg['data']&&msg['status']=='ok'){
-                                console.log(JSON.stringify(msg,null,3));
-                                /*apply成功後會得到 1.access_token 2.graph token*/
-                                track_tool.applyCrawler({crawler_port,master_ip,master_port,master_name,master_version,invite_token},(flag,msg)=>{
-                                    if(flag=='ok'&&msg&&msg['data']&&msg['status']=='ok'){
-                                        app.use('/'+crawler_name+'/'+crawler_version,crawler);
-                                        mission['token']['graph_token']=msg['data']['graph_token'];
-                                        mission['token']['access_token']=msg['data']['access_token'];
-                                        console.log('Apply success:'+JSON.stringify(msg,null,3));
-                                        track_tool.listTrack({master_ip,master_port,master_name,master_version,access_token:mission['token']['access_token']},(flag,msg)=>{
-                                            //console.log('listTrack:\n'+JSON.stringify(msg,null,3));
-                                        });
-                                    }
-                                    else{
-                                        console.log('['+flag+'] '+msg);
-                                    }
-
+                                app.use('/'+crawler_name+'/'+crawler_version,crawler);
+                                mission['token']['graph_token']=msg['data']['graph_token'];
+                                mission['token']['access_token']=msg['data']['access_token'];
+                                console.log('Apply success:'+JSON.stringify(msg,null,3));
+                                track_tool.listTrack({master_ip,master_port,master_name,master_version,access_token:mission['token']['access_token']},(flag,msg)=>{
+                                    //console.log('listTrack:\n'+JSON.stringify(msg,null,3));
                                 });
                             }
                             else{
                                 console.log('['+flag+'] '+msg);
                             }
+
                         });
                     }
                     else{
@@ -476,8 +438,8 @@ else{
                         process.exit();
                     }
                 });
-            }
 
+            }
     })
 }
 
@@ -562,6 +524,8 @@ function addTrackId(ids){
 
 function updateMission(assign_mission){
     mission['info']=assign_mission;
+    track_tool.updateFieldMap(assign_mission['fields_mapping']);
+
     console.log('[harmony] mission'+JSON.stringify(mission));
     if(UPLOAD_INTERVAL&&UPLOAD_INTERVAL=='time'&&mission['info']['UPLOAD_INTERVAL']['type']!='time'){
         upload_process=false;
