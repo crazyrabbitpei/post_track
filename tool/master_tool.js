@@ -12,13 +12,24 @@ const center_ip = master_setting['center_ip'];
 const center_port = master_setting['center_port'];
 const center_name = master_setting['center_name'];
 const center_version = master_setting['center_version'];
+const service_store_info = master_setting['service_store_info'];
+
 
 class Track{
     constructor(){
         this.mission = JSON.parse(fs.readFileSync('./service/mission.json'));
         this.post_idInfo =  new Map();//(token,發出去的時間)
+        this.trackPools={};//記錄pool name, pool用途描述, pool內擁有的track post info({post_id,created_time,pool_name})
+        this.crawlersInfo=new Map();//(token, info) -> info:(ip, port, created_time, active_time), active_time預設為crawler最後一次回報的時間, 但是crawlerSatus有記錄crawler的狀態(init, done, ${time}), time為crawler接收到任務的時間, 假設一直都是時間, 則代表自上次發出任務以來, crawler都沒有回報, 該crawler可能已經停擺, 需要做過期處理
+        this.crawlerSatus=new Map();//(token, status), status(init, done, ${time}), 交由missionStatus來管理, 記錄crawler的狀態
+        this.schedulesInfo=new Map();//(schedule name, info), info(description, track_time, track_pool_name, track_num, status), track_num:一次追蹤既幾個post id, status:該行程的開關狀態(on/off)
+        this.schedulesJob=new Map();//(schedule name, schedule本體), 可借由schedulesJob(name).stop/start
+        /* 關於schedulesInfo, schedulesJob:
+         * 創造新的行程時, 會先創建schedulesInfo, schedulesJob則會在開啟該行程時創建, 若行程關閉, 則
+         * 會呼叫shutdownSingleSchedule來移除schedulesJob中的資訊, schedulesInfo則保留
+         * 等到下次再次開啟時才會呼叫createSingleSchedule去讀取schedulesInfo的資訊來創建schedulesJob
+         * */
 
-        this.trackPools={};
         for(let i=0,pools=master_setting.trackpools,keys=Object.keys(pools);i<keys.length;i++){
             let key=keys[i];
             //console.log('key['+i+'] '+key+' value:'+pools[keys[i]]['name']);
@@ -27,8 +38,6 @@ class Track{
             this.trackPools[pools[keys[i]]['name']]['data']=[];
         }
 
-        this.crawlersInfo=new Map();
-        this.crawlerSatus=new Map();
         for(let i=0,crawlers=master_setting.crawlers;i<crawlers.length;i++){
             let info={};
             info['ip']=crawlers[i]['ip'];
@@ -40,8 +49,7 @@ class Track{
             //this.crawlerSatus.set(crawlers[i]['token'],crawlers[i]['status']);
         }
         
-        this.schedulesInfo=new Map();
-        this.schedulesJob=new Map();
+
         for(let i=0,schedules=master_setting.schedules;i<schedules.length;i++){
             console.log(JSON.stringify({description:schedules[i]['description'],track_time:schedules[i]['track_time'],track_pool_name:schedules[i]['track_pool_name'],schedule_status:schedules[i]['status']},null,3));
             if(!this.newSchedule(schedules[i]['name'],{description:schedules[i]['description'],track_time:schedules[i]['track_time'],track_pool_name:schedules[i]['track_pool_name'],schedule_status:schedules[i]['status']})){
@@ -67,6 +75,39 @@ class Track{
             //this.newSchedule({name:schedules[i]['name'],description:schedules[i]['description'],track_time:schedules[i]['track_time'],track_pool_name:schedules[i]['track_time']})
         }
         return true;
+    }
+    
+    storeInfo2File(){
+        this.write2File('map','post_idInfo',this.post_idInfo,false);
+        this.write2File('map','crawlersInfo',this.crawlersInfo,true);
+        this.write2File('map','crawlerSatus',this.crawlerSatus,true);
+        this.write2File('map','schedulesInfo',this.schedulesInfo,true);
+        this.write2File('object','trackPools',this.trackPools,true);
+    }
+
+    //TODO:testing
+    write2File(flag,info_type,info,parseFlag){
+        console.log(`Store ${info_type} to file :`+service_store_info['info_type'][info_type]);
+        let writeStream = fs.createWriteStream(service_store_info['dir']+'/'+service_store_info['info_type'][info_type]);
+        if(flag=='map'){
+            for(let [key,value] of info){
+                if(parseFlag){
+                    value = JSON.stringify(value);
+                }
+                writeStream.write(`${key},${value}`);
+            }
+        }
+        else{
+            writeStream.write(JSON.stringify(info)); 
+        }
+
+        writeStream.end();
+        console.log('Store info done : '+service_store_info['info_type'][info_type]);
+    }
+
+    //TODO:testing
+    readInfoFromFile(){
+        
     }
 
 
@@ -744,7 +785,7 @@ class Track{
         this.mission['track_posts'] = track_ids.map(function(x){
             return x.post_id;
         });
-        //console.log('Master send:'+JSON.stringify(this.mission,null,3));
+        console.log('Master send:'+JSON.stringify(this.mission,null,3)+'URL:http://'+ip+':'+port+'/'+crawler_name+'/'+crawler_version+'/mission');
         //return;
         request({
             method:'POST',

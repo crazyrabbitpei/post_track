@@ -16,6 +16,7 @@ var dateFormat = require('dateformat');
 var HashMap = require('hashmap');
 var master = express.Router();
 
+
 var data_crawler = new Map();
 var graph_tokens = new Map();
 var track_ids = [];
@@ -34,6 +35,17 @@ loadIds();
 /*給予demo用的通行証*/
 //crawler_info.set(master_setting['demo_token'],new Object());
 
+process.on('SIGTERM',()=>{
+    console.log("[Server stop] ["+new Date()+"]");
+    track.storeInfo2File();
+    process.exit(0);
+});
+
+process.on('SIGINT',()=>{
+    console.log("[Server stop] ["+new Date()+"]");
+    track.storeInfo2File();
+    process.exit(0);
+});
 
 
 /*所有的request都必須被檢查其access token*/
@@ -487,16 +499,17 @@ function loadGraphToken(){
 
 function loadIds(){
     var lr = new LineByLineReader(master_setting['list_dir']+'/'+master_setting['track_id_list']);
+    let line_cnt=0;
     lr.on('error', function (err) {
         console.log('Master [pushIds] err:'+err);
         writeLog('err',err);
     });
     lr.on('line', function (line) {
-        //track_ids.push(line);
+        line_cnt++;
         /*TODO:構想追蹤id list存放格式，之後要依欄位讀入memory，1.將post id作為key  2.是否被追蹤過 true/false ，被追蹤過的話則可以忽略不讀進memory 3.是否再次追蹤 true/false 4.發佈時間，沒有就留空 5.欲放入的pool name，沒有就留空*/
         var parts = line.split(',');
         if(!track.insertIdsToPool(parts[0],{pool_name:parts[4],created_time:parts[3]})){
-
+            console.log(`Loading error : ${line_cnt}`);
         }
     });
     lr.on('end', function () {
