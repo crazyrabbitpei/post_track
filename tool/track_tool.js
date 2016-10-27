@@ -15,9 +15,11 @@ const master_timeout_again = crawler_setting['master_timeout_again'];
 const graph_timeout_again = crawler_setting['graph_timeout_again'];
 const retry_limit = crawler_setting['retry_limit'];
 var cnt_retry=0;
+var fieldMap={};
 
-
-
+function updateFieldMap(data){
+    fieldMap = data;
+}
 
 
 function applyCrawler({crawler_port,master_ip,master_port,master_name,master_version,invite_token},fin){
@@ -417,6 +419,70 @@ function trackPost(graph_option,mission,post_id,fin){
        }
     });
 }
+function transFieldName(option,field,type){
+    if(option=='lowercase'){    
+        return field.toLowerCase();
+    }
+    else{
+        if(field=='id'){
+            if(fieldMap[field]&&fieldMap[field][type]){
+                return fieldMap[field][type];
+            }
+            else if(field==type){
+                return fieldMap[field]['post'];
+            }
+            /*
+            if(type=='comments'){
+                field='comment_id';
+            }
+            else if(type=='sharedposts'){
+                field='shared_posts_id';
+            }
+            else{
+                field='post_id';
+            }
+            */
+        }
+        else{
+            if(fieldMap[field]){
+                return fieldMap[field];
+            }
+            else{
+                return field;
+            }
+        }
+        /*
+        else if(field=='created_time'){
+            field = 'post_time';
+        }
+        else if(field=='message'){
+            field='body';
+        }
+        else if(field=='like_count'){
+            field='reactions_cnt';
+        }
+        else if(field=='comment_count'){
+            field='comments_cnt';
+        }
+        else if(field=='permalink_url'){
+            field='url';
+        }
+        else if(field=='link'){
+            field='related_link';
+        }
+        else if(field==''){
+            field='';
+        }
+        else if(field==''){
+            field='';
+        }
+        else if(field==''){
+            field='';
+        }
+        */
+    }
+}
+
 function transGais(data){
     var i,j,k;
     var gaisrec='';
@@ -448,6 +514,7 @@ function transGais(data){
                         data[l][keys[i]][sub_keys[j]]='';
                     }
                     /*將欄位名稱轉換成指定名稱*/
+                    sub_keys[j] = sub_keys[j].toLowerCase();
                     sub_gaisrec+='\t'+sub_keys[j]+':'+data[l][keys[i]][sub_keys[j]]+'\n';
 
                 }
@@ -495,36 +562,43 @@ function transGais(data){
 }
 function mappingGaisFileds(field,type){
     if(field=='created_time'){
-        field = 'Doctime';
+        field = 'post_time';
     }
     else if(field=='permalink_url'){
-        field = 'Url';   
+        field = 'url';   
     }
     else if(field=='link'){
-        field = 'Related_link';
+        field = 'related_link';
     }
     else if(field=='id'){
         if(type=='comments'){
-            field='Comment_id';
+            field='comment_id';
         }
         else if(type=='sharedposts'){
-            field='Sharepost_id';
+            field='shared_posts_id';
         }
         else{
-            field='Post_id';
+            field='post_id';
         }
     }
+    /*
     else if(field=='from'){
-        field='From_id';
+            field='from_id';
     }
-    else if(field=='attachments_src'){
-        field = 'ImageLink';
+    */
+    //feed? API為attachments, 有media{image{height, src, width}}, target, description, title, type, url欄位
+    //comments? API為attachment, 且只有type和url欄位，不需要有縮圖欄位，只需要知道回應的種類為貼圖或是連結...
+    /*
+    else if(field=='attachments_url'){
+        field = 'image_links';
     }
+    */
     else if(field=='message'){
-        field='Body';
+        field='body';
     }
-    else{
-        field = wordToUpper(1,field);
+    else{//之前欄位格式為一個字大寫，現在一律小寫
+        //field = wordToUpper(1,field);
+        //field = wordToLower(1,field);
     }
     return field;
 }
@@ -560,7 +634,9 @@ function initContent([...fields],content){
                         if(typeof content[keys[i]][sub_keys[j]]==='undefined'||content[keys[i]][sub_keys[j]]==null){
                             content[keys[i]][sub_keys[j]]='';
                         }
-                        this[keys[i]+'_'+sub_keys[j]] = content[keys[i]][sub_keys[j]];
+                        let map_field = transFieldName('',keys[i]+'_'+sub_keys[j],'');
+                        this[map_field] = content[keys[i]][sub_keys[j]]
+                        //this[keys[i]+'_'+sub_keys[j]] = content[keys[i]][sub_keys[j]];
                     }
                 }
 
@@ -572,7 +648,9 @@ function initContent([...fields],content){
                 else if(keys[i]=='created_time'){
                     content[keys[i]] = dateFormat(content[keys[i]],'yyyy/mm/dd HH:MM:ss');
                 }
-                this[keys[i]] = content[keys[i]];
+                let map_field = transFieldName('',keys[i],keys[i]);
+                this[map_field] = content[keys[i]];
+                //this[keys[i]] = content[keys[i]];
             }
         }
         //TODO:此處的attachment為貼文本身的附件，要將這段移到data crawler上，蒐集atatchhment資訊 
@@ -595,11 +673,12 @@ function initContent([...fields],content){
                 if(typeof content['reactions']!=='undefined'&&content['reactions']!=''&&content['reactions']!=null){
                     for(j=0;j<content['reactions']['data'].length;j++){
                         type = content['reactions']['data'][j]['type'];
-                        if(typeof this.reactions[type]==='undefined'||this.reactions[type]==null){
-                            this.reactions[type]=1;
+                        let map_field = transFieldName('lowercase',type,keys[i]);
+                        if(typeof this.reactions[map_field]==='undefined'||this.reactions[map_field]==null){
+                            this.reactions[map_field]=1;
                         }
                         else{
-                            this.reactions[type]++;
+                            this.reactions[map_field]++;
                         }
                     }
                 }
@@ -614,6 +693,26 @@ function initContent([...fields],content){
                         sub_keys = Object.keys(content['comments']['data'][j]);
                         /*檢查有無該欄位，如果沒有則還是會保留這個欄位，並且給予''值*/
                         for(k=0;k<sub_keys.length;k++){
+                            let map_field = transFieldName('',sub_keys[k],keys[i]);
+                            if(typeof data[j][sub_keys[k]]==='undefined'||data[j][sub_keys[k]]==null){
+                                data[j][sub_keys[k]]='';
+                            }
+                            if(sub_keys[k]=='created_time'){
+                                data[j][sub_keys[k]] = dateFormat(data[j][sub_keys[k]],'yyyy/mm/dd HH:MM:ss');
+                                temp[map_field] = data[j][sub_keys[k]];
+                            }
+                            else if(sub_keys[k]=='from'||sub_keys[k]=='attachment'){//拿取回文附件的type, url兩個欄位(已寫在mission設定檔裡)
+                                let sub_sub_keys = Object.keys(data[j][sub_keys[k]]);
+                                for(let l=0;l<sub_sub_keys.length;l++){
+                                    let map_field = transFieldName('',sub_keys[k]+'_'+sub_sub_keys[l],keys[i]);
+                                    temp[map_field] = data[j][sub_keys[k]][sub_sub_keys[l]];
+                                    //temp[sub_keys[k]+'_'+sub_sub_keys[l]] = data[j][sub_keys[k]][sub_sub_keys[l]];
+                                }
+                            }
+                            else{
+                                temp[map_field] = data[j][sub_keys[k]];
+                            }
+                            /*
                             if(typeof data[j][sub_keys[k]]==='undefined'||data[j][sub_keys[k]]==null){
                                 data[j][sub_keys[k]]='';
                             }
@@ -621,10 +720,7 @@ function initContent([...fields],content){
                                 data[j][sub_keys[k]] = dateFormat(data[j][sub_keys[k]],'yyyy/mm/dd HH:MM:ss');
                                 temp[sub_keys[k]] = data[j][sub_keys[k]];
                             }
-                            else if(sub_keys[k]=='from'){
-                                temp[sub_keys[k]] = data[j][sub_keys[k]]['id'];
-                            }
-                            else if(sub_keys[k]=='attachment'){
+                            else if(sub_keys[k]=='from'||sub_keys[k]=='attachment'){//拿取回文附件的type, url兩個欄位(已寫在mission設定檔裡)
                                 let sub_sub_keys = Object.keys(data[j][sub_keys[k]]);
                                 for(let l=0;l<sub_sub_keys.length;l++){
                                     temp[sub_keys[k]+'_'+sub_sub_keys[l]] = data[j][sub_keys[k]][sub_sub_keys[l]];
@@ -633,6 +729,7 @@ function initContent([...fields],content){
                             else{
                                 temp[sub_keys[k]] = data[j][sub_keys[k]];
                             }
+                            */
                         }
                         this.comments.push(temp);
                         //this.comments.push({id:data[i].id,created_time:dateFormat(data[i].created_time,'yyyy/mm/dd HH:MM:ss'),like_count:data[i].like_count,message:data[i].message});
@@ -648,6 +745,27 @@ function initContent([...fields],content){
                         sub_keys = Object.keys(content['sharedposts']['data'][j]);
                         /*檢查有無該欄位，如果沒有則給''*/
                         for(k=0;k<sub_keys.length;k++){
+                            let map_field = transFieldName('',sub_keys[k],keys[i]);
+                            
+                            if(typeof data[j][sub_keys[k]]==='undefined'||data[j][sub_keys[k]]==null){
+                                data[j][sub_keys[k]]='';
+                            }
+                            if(sub_keys[k]=='created_time'){
+                                data[j][sub_keys[k]] = dateFormat(data[j][sub_keys[k]],'yyyy/mm/dd HH:MM:ss');
+                                temp[map_field] = data[j][sub_keys[k]];
+                            }
+                            else if(sub_keys[k]=='from'){
+                                let sub_sub_keys = Object.keys(data[j][sub_keys[k]]);
+                                for(let l=0;l<sub_sub_keys.length;l++){
+                                    let map_field = transFieldName('',sub_keys[k]+'_'+sub_sub_keys[l],keys[i]);
+                                    temp[map_field] = data[j][sub_keys[k]][sub_sub_keys[l]];
+                                    //temp[sub_keys[k]+'_'+sub_sub_keys[l]] = data[j][sub_keys[k]][sub_sub_keys[l]];
+                                }
+                            }
+                            else{
+                                temp[map_field] = data[j][sub_keys[k]];
+                            }
+                            /*
                             if(typeof data[j][sub_keys[k]]==='undefined'||data[j][sub_keys[k]]==null){
                                 data[j][sub_keys[k]]='';
                             }
@@ -656,11 +774,15 @@ function initContent([...fields],content){
                                 temp[sub_keys[k]] = data[j][sub_keys[k]];
                             }
                             else if(sub_keys[k]=='from'){
-                                temp[sub_keys[k]] = data[j][sub_keys[k]]['id'];
+                                let sub_sub_keys = Object.keys(data[j][sub_keys[k]]);
+                                for(let l=0;l<sub_sub_keys.length;l++){
+                                    temp[sub_keys[k]+'_'+sub_sub_keys[l]] = data[j][sub_keys[k]][sub_sub_keys[l]];
+                                }
                             }
                             else{
                                 temp[sub_keys[k]] = data[j][sub_keys[k]];
                             }
+                            */
                         }
                         this.sharedposts.push(temp);
                         //this.sharedposts.push({id:data[i].id,created_time:dateFormat(data[i].created_time,'yyyy/mm/dd HH:MM:ss'),likes:data[i].like_count,message:data[i].message});
@@ -736,33 +858,43 @@ function parseComment(fields,content){
             keys = Object.keys(content['data'][i]);
             /*檢查有無該欄位，如果沒有則給''*/
             for(j=0;j<keys.length;j++){
+                let map_field = transFieldName('',keys[j],'comment');
                 //comments裡若有圖片或其他附件，目前無法使用attachment{url,...}的方式抓到，故如果回應是一張圖的話，message為空
-                /*
-                if(fields.indexOf(keys[j]+'{')!=-1){
-                    if(typeof content['data'][keys[j]]!=='undefined'){
-                        sub_keys = Object.keys(content['data'][keys[j]]);
-                        for(k=0;k<sub_keys.length;k++){
-                            temp[keys[j]+'_'+sub_keys[k]] = data[i][keys[j]][sub_keys[k]];
-                        }
+                if(typeof data[i][keys[j]]==='undefined'||data[i][keys[j]]==null){
+                    data[i][keys[j]]='';
+                }
+                if(keys[j]=='created_time'){
+                    data[i][keys[j]] = dateFormat(data[i][keys[j]],'yyyy/mm/dd HH:MM:ss');
+                    temp[map_field] = data[i][keys[j]];
+                }
+                else if(keys[j]=='from'||keys[j]=='attachment'){//只拿取回文附件的type, url兩個欄位(已寫在mission設定檔裡)
+                    let sub_sub_keys = Object.keys(data[i][keys[j]]);
+                    for(let l=0;l<sub_sub_keys.length;l++){
+                        let map_field = transFieldName('',keys[j]+'_'+sub_sub_keys[l],'comment');
+                        temp[map_field] = data[i][keys[j]][sub_sub_keys[l]];
                     }
-
+                }
+                else{
+                    temp[map_field] = data[i][keys[j]];
+                }
+                /*
+                if(typeof data[i][keys[j]]==='undefined'||data[i][keys[j]]==null){
+                    data[i][keys[j]]='';
+                }
+                if(keys[j]=='created_time'){
+                    data[i][keys[j]] = dateFormat(data[i][keys[j]],'yyyy/mm/dd HH:MM:ss');
+                    temp[keys[j]] = data[i][keys[j]];
+                }
+                else if(keys[j]=='from'||keys[j]=='attachment'){//只拿取回文附件的type, url兩個欄位(已寫在mission設定檔裡)
+                    let sub_sub_keys = Object.keys(data[i][keys[j]]);
+                    for(let l=0;l<sub_sub_keys.length;l++){
+                        temp[keys[j]+'_'+sub_sub_keys[l]] = data[i][keys[j]][sub_sub_keys[l]];
+                    }
+                }
+                else{
+                    temp[keys[j]] = data[i][keys[j]];
                 }
                 */
-                //else{
-                    if(typeof data[i][keys[j]]==='undefined'||data[i][keys[j]]==null){
-                        data[i][keys[j]]='';
-                    }
-                    if(keys[j]=='created_time'){
-                        data[i][keys[j]] = dateFormat(data[i][keys[j]],'yyyy/mm/dd HH:MM:ss');
-                        temp[keys[j]] = data[i][keys[j]];
-                    }
-                    else if(keys[j]=='from'){
-                        temp[keys[j]] = data[i][keys[j]]['id'];
-                    }
-                    else{
-                        temp[keys[j]] = data[i][keys[j]];
-                    }
-                //}
 
             }
             this.comments.push(temp);
@@ -793,19 +925,39 @@ function parseSharedpost(fields,content){
             keys = Object.keys(content['data'][i]);
             /*檢查有無該欄位，如果沒有則給''*/
             for(j=0;j<keys.length;j++){
+                let map_field = transFieldName('',keys[j],'sharedpost');
                 if(typeof data[i][keys[j]]==='undefined'||data[i][keys[j]]==null){
                     data[i][keys[j]]='';
                 }
                 if(keys[j]=='created_time'){
                     data[i][keys[j]] = dateFormat(data[i][keys[j]],'yyyy/mm/dd HH:MM:ss');
+                    temp[map_field] = data[i][keys[j]];
+                }
+                else if(keys[j]=='from'){
+                    let sub_sub_keys = Object.keys(data[i][keys[j]]);
+                    for(let l=0;l<sub_sub_keys.length;l++){
+                        let map_field = transFieldName('',keys[j]+'_'+sub_sub_keys[l],'sharedpost');
+                        temp[map_field] = data[i][keys[j]][sub_sub_keys[l]];
+                    }
+                }
+                else{
+                    temp[map_field] = data[i][keys[j]];
+                }
+                /*
+                if(keys[j]=='created_time'){
+                    data[i][keys[j]] = dateFormat(data[i][keys[j]],'yyyy/mm/dd HH:MM:ss');
                     temp[keys[j]] = data[i][keys[j]];
                 }
                 else if(keys[j]=='from'){
-                    temp[keys[j]] = data[i][keys[j]]['id'];
+                    let sub_sub_keys = Object.keys(data[i][keys[j]]);
+                    for(let l=0;l<sub_sub_keys.length;l++){
+                        temp[keys[j]+'_'+sub_sub_keys[l]] = data[i][keys[j]][sub_sub_keys[l]];
+                    }
                 }
                 else{
                     temp[keys[j]] = data[i][keys[j]];
                 }
+                */
             }
             this.sharedposts.push(temp);
             //this.sharedposts.push({id:data[i].id,created_time:dateFormat(data[i].created_time,'yyyy/mm/dd HH:MM:ss'),likes:data[i].like_count,message:data[i].message});
@@ -830,11 +982,12 @@ function parseReaction(fields,content){
         var type,cnt,i;
         for(i=0;i<content['data'].length;i++){
             type = content['data'][i]['type'];
-            if(typeof this.reactions[type]==='undefined'||this.reactions[type]==null){
-                this.reactions[type]=1;
+            let map_field = transFieldName('lowercase',type,'');
+            if(typeof this.reactions[map_field]==='undefined'||this.reactions[map_field]==null){
+                this.reactions[map_field]=1;
             }
             else{
-                this.reactions[type]++;
+                this.reactions[map_field]++;
             }
 
         }
@@ -1032,6 +1185,17 @@ function wordToUpper(index,str){
         return x;
     }).join('');
 }
+function wordToLower(index,str){
+    var cnt=1;
+    var map = Array.prototype.map;
+    return map.call(str,function(x){
+        if(cnt==index){
+            x = x.toLowerCase();
+        }
+        cnt++;
+        return x;
+    }).join('');
+}
 function initDir(dir){
     var root = dir['root'];
     var type = dir['type'];
@@ -1096,3 +1260,4 @@ exports.parseComment=parseComment;
 exports.parseSharedpost=parseSharedpost;
 exports.parseReaction=parseReaction;
 exports.transGais=transGais;
+exports.updateFieldMap=updateFieldMap;
