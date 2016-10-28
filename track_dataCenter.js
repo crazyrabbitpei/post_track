@@ -72,6 +72,7 @@ center.post('/data/:datatype(json|gais)',function(req,res){
     var datatype = req.params.datatype;
     var now=dateFormat(new Date(),'yyyymmdd');
     var size=0;
+    var temp='',err_flag=0,err_msg='';
     var dir=data_dir+'/';
     dir+=datatype+'/'+now+'.'+datatype;
     /*
@@ -84,8 +85,9 @@ center.post('/data/:datatype(json|gais)',function(req,res){
     */
     console.log('Start reading data...');
     req.on('data', function(data){
+        temp+=data;
         size+=Buffer.byteLength(data);
-        fs.appendFile(dir,data,'utf8',function(err){
+        fs.appendFile(dir,data,function(err){
             if(err){
                 console.log('err:'+err);
                 writeLog('err','From '+req.ip+', upload fail:'+err);
@@ -95,13 +97,33 @@ center.post('/data/:datatype(json|gais)',function(req,res){
 
     });
     req.on('end', function(data){
-        /*recording ip and datasize*/
-        if(datatype=='json'){
-            fs.appendFile(dir,'\n','utf8',()=>{});
+        try{
+            if(datatype=='json'){
+                var test = JSON.parse(temp);
+            }
         }
-        console.log('From '+req.ip+', upload success:'+size);
-        writeLog('process','From '+req.ip+', upload success:'+size);
-        sendResponse(res,'ok',200,'Upload success:'+size);
+        catch(e){
+            err_flag=1;
+            err_msg=e;
+            console.log('Parse upload data error:'+e);
+        }
+        finally{
+            if(!err_flag){
+                /*recording ip and datasize*/
+                if(datatype=='json'){
+                    fs.appendFile(dir,'\n','utf8',()=>{});
+                }
+                console.log('Uplaod success!');
+                writeLog('process','From '+req.ip+', upload success:'+size);
+                sendResponse(res,'ok',200,'Upload success:'+size);
+            }
+            else{
+                console.log('Upload fail.');
+                writeLog('err','From '+req.ip+', upload fail:'+err_msg);
+                sendResponse(res,'false',200,'Upload fail.');
+            }
+        }
+
     });
 });
 function sendResponse(res,type,status_code,msg){

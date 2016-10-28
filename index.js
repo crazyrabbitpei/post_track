@@ -323,6 +323,7 @@ function flush(){
     if(write2Local){
         track_tool.writeRec(mission['info']['datatype'],final_result);
     }
+
     track_tool.uploadTrackPostData(mission['token']['access_token'],{data:final_result,datatype:mission['info']['datatype']},(flag,msg)=>{
         if(flag=='ok'){
             console.log(msg);

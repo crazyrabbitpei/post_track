@@ -431,17 +431,6 @@ function transFieldName(option,field,type){
             else if(field==type){
                 return fieldMap[field]['post'];
             }
-            /*
-            if(type=='comments'){
-                field='comment_id';
-            }
-            else if(type=='sharedposts'){
-                field='shared_posts_id';
-            }
-            else{
-                field='post_id';
-            }
-            */
         }
         else{
             if(fieldMap[field]){
@@ -451,38 +440,9 @@ function transFieldName(option,field,type){
                 return field;
             }
         }
-        /*
-        else if(field=='created_time'){
-            field = 'post_time';
-        }
-        else if(field=='message'){
-            field='body';
-        }
-        else if(field=='like_count'){
-            field='reactions_cnt';
-        }
-        else if(field=='comment_count'){
-            field='comments_cnt';
-        }
-        else if(field=='permalink_url'){
-            field='url';
-        }
-        else if(field=='link'){
-            field='related_link';
-        }
-        else if(field==''){
-            field='';
-        }
-        else if(field==''){
-            field='';
-        }
-        else if(field==''){
-            field='';
-        }
-        */
     }
 }
-
+/*欄位名稱在json格式時就已經轉換指定格式，故這邊只要按照原本的名稱轉成gais rec即可*/
 function transGais(data){
     var i,j,k;
     var gaisrec='';
@@ -495,12 +455,12 @@ function transGais(data){
         var keys = Object.keys(data[l]);
         var sub_keys;
         for(i=0;i<keys.length;i++){
-            /*字首大寫轉換，以及將欄位名稱轉成指定名字*/
             if(keys[i]=='next_reactions'||keys[i]=='next_comments'||keys[i]=='next_sharedposts'){
                 continue;
             }
-            new_name = mappingGaisFileds(keys[i],keys[i]);
-            if(keys[i]=='id'){
+            //new_name = mappingGaisFileds(keys[i],keys[i]);
+            new_name = keys[i];
+            if(keys[i]=='post_id'){
                 current_post_id = data[l][keys[i]];
             }
             /*會有多種reaction種類，每個種類會分成不同子類別，放在reactions欄位之下*/
@@ -515,33 +475,36 @@ function transGais(data){
                     }
                     /*將欄位名稱轉換成指定名稱*/
                     sub_keys[j] = sub_keys[j].toLowerCase();
-                    sub_gaisrec+='\t'+sub_keys[j]+':'+data[l][keys[i]][sub_keys[j]]+'\n';
+                    sub_gaisrec+='\t'+sub_keys[j]+':'+data[l][keys[i]][sub_keys[j]]+' ';
 
                 }
-                gaisrec+=sub_gaisrec;
+                gaisrec+=sub_gaisrec+'\n';
             }
             /*因為comments, sharedposts有陣列的議題(多個回應、分享)，需要將每個回應、分享轉換成子欄位*/
-            else if(keys[i]=='comments'||keys[i]=='sharedposts'){
+            else if(keys[i]=='comments'||keys[i]=='shared_posts'){
                 gaisrec+='@'+new_name+':\n';
                 for(j=0;j<data[l][keys[i]].length;j++){
-                    sub_gaisrec='\t'+mappingGaisFileds(keys[i],'')+'_'+j;
+                    sub_gaisrec='\t'+keys[i]+'_'+j;
                     sub_keys = Object.keys(data[l][keys[i]][j]);
                     for(k=0;k<sub_keys.length;k++){
                         //console.log('['+j+'] ['+sub_keys[k]+'] '+data[l][keys[i]][j][sub_keys[k]]);
                         if(typeof data[l][keys[i]][j][sub_keys[k]]==='undefined'||data[l][keys[i]][j][sub_keys[k]]==null){
                             data[l][keys[i]][j][sub_keys[k]]='';
                         }
-                        else if(sub_keys[k]=='message'){
+                        else if(sub_keys[k]=='body'){
                             data[l][keys[i]][j][sub_keys[k]]=data[l][keys[i]][j][sub_keys[k]].replace(/\n/g,' ');
+                            data[l][keys[i]][j][sub_keys[k]]=data[l][keys[i]][j][sub_keys[k]].replace(/\r/g,' ');
                         }
-                        new_sub_name = mappingGaisFileds(sub_keys[k],keys[i]);
+                        //new_sub_name = mappingGaisFileds(sub_keys[k],keys[i]);
+                        new_sub_name = sub_keys[k];
                         sub_gaisrec+=' '+new_sub_name+':'+data[l][keys[i]][j][sub_keys[k]];
                     }
                     gaisrec+=sub_gaisrec+'\n';
                 }
             }
-            else if(keys[i]=='message'){
+            else if(keys[i]=='body'){
                 data[l][keys[i]] = data[l][keys[i]].replace(/\n/g,' ');
+                data[l][keys[i]] = data[l][keys[i]].replace(/\r/g,' ');
                 gaisrec+='@'+new_name+':\n'
                 gaisrec+=data[l][keys[i]]+'\n';
             }
@@ -560,6 +523,7 @@ function transGais(data){
 
     return gaisrec;
 }
+/*
 function mappingGaisFileds(field,type){
     if(field=='created_time'){
         field = 'post_time';
@@ -581,18 +545,13 @@ function mappingGaisFileds(field,type){
             field='post_id';
         }
     }
-    /*
     else if(field=='from'){
             field='from_id';
     }
-    */
-    //feed? API為attachments, 有media{image{height, src, width}}, target, description, title, type, url欄位
-    //comments? API為attachment, 且只有type和url欄位，不需要有縮圖欄位，只需要知道回應的種類為貼圖或是連結...
-    /*
+
     else if(field=='attachments_url'){
         field = 'image_links';
     }
-    */
     else if(field=='message'){
         field='body';
     }
@@ -602,10 +561,13 @@ function mappingGaisFileds(field,type){
     }
     return field;
 }
+*/
 //TODO:
 //  1.有兩類的回傳格式，一個是有comments的 可以得到回應本身的資訊， 一個是沒有comments的 可以得到貼文本身的資訊 ，要分別處理
 //  2.換成class可能比較好寫
 //  3.要發兩次request分別得到兩種回傳格式，/comments? 稍微與之前不同
+    //feed? API為attachments, 有media{image{height, src, width}}, target, description, title, type, url欄位
+    //comments? API為attachment, 且只有type和url欄位，不需要有縮圖欄位，只需要知道回應的種類為貼圖或是連結...
 function initContent([...fields],content){
     var i,j,k;
     /*--------------------------------------------*/
@@ -663,7 +625,8 @@ function initContent([...fields],content){
                     if(typeof content[keys[i]]['data'][0]['media']['image'][sub_keys[j]]==='undefined'||content[keys[i]]['data'][0]['media']['image'][sub_keys[j]]==null){
                         content[keys[i]]['data'][0]['media']['image'][sub_keys[j]]='';
                     }
-                    this[keys[i]+'_'+sub_keys[j]] = content[keys[i]]['data'][0]['media']['image'][sub_keys[j]];
+                    let map_field = transFieldName('',keys[i]+'_'+sub_keys[j],keys[i]);
+                    this[map_field] = content[keys[i]]['data'][0]['media']['image'][sub_keys[j]];
                 }
             }
         }
@@ -693,7 +656,7 @@ function initContent([...fields],content){
                         sub_keys = Object.keys(content['comments']['data'][j]);
                         /*檢查有無該欄位，如果沒有則還是會保留這個欄位，並且給予''值*/
                         for(k=0;k<sub_keys.length;k++){
-                            let map_field = transFieldName('',sub_keys[k],keys[i]);
+                            let map_field = transFieldName('',sub_keys[k],'comment');
                             if(typeof data[j][sub_keys[k]]==='undefined'||data[j][sub_keys[k]]==null){
                                 data[j][sub_keys[k]]='';
                             }
@@ -704,7 +667,7 @@ function initContent([...fields],content){
                             else if(sub_keys[k]=='from'||sub_keys[k]=='attachment'){//拿取回文附件的type, url兩個欄位(已寫在mission設定檔裡)
                                 let sub_sub_keys = Object.keys(data[j][sub_keys[k]]);
                                 for(let l=0;l<sub_sub_keys.length;l++){
-                                    let map_field = transFieldName('',sub_keys[k]+'_'+sub_sub_keys[l],keys[i]);
+                                    let map_field = transFieldName('',sub_keys[k]+'_'+sub_sub_keys[l],'comment');
                                     temp[map_field] = data[j][sub_keys[k]][sub_sub_keys[l]];
                                     //temp[sub_keys[k]+'_'+sub_sub_keys[l]] = data[j][sub_keys[k]][sub_sub_keys[l]];
                                 }
@@ -745,7 +708,7 @@ function initContent([...fields],content){
                         sub_keys = Object.keys(content['sharedposts']['data'][j]);
                         /*檢查有無該欄位，如果沒有則給''*/
                         for(k=0;k<sub_keys.length;k++){
-                            let map_field = transFieldName('',sub_keys[k],keys[i]);
+                            let map_field = transFieldName('',sub_keys[k],'sharedpost');
                             
                             if(typeof data[j][sub_keys[k]]==='undefined'||data[j][sub_keys[k]]==null){
                                 data[j][sub_keys[k]]='';
@@ -757,7 +720,7 @@ function initContent([...fields],content){
                             else if(sub_keys[k]=='from'){
                                 let sub_sub_keys = Object.keys(data[j][sub_keys[k]]);
                                 for(let l=0;l<sub_sub_keys.length;l++){
-                                    let map_field = transFieldName('',sub_keys[k]+'_'+sub_sub_keys[l],keys[i]);
+                                    let map_field = transFieldName('',sub_keys[k]+'_'+sub_sub_keys[l],'sharedpost');
                                     temp[map_field] = data[j][sub_keys[k]][sub_sub_keys[l]];
                                     //temp[sub_keys[k]+'_'+sub_sub_keys[l]] = data[j][sub_keys[k]][sub_sub_keys[l]];
                                 }
