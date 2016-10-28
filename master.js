@@ -30,21 +30,21 @@ var track = new master_tool.Track();
  */
 var master_setting = JSON.parse(fs.readFileSync('./service/master_setting.json'));
 var mission = JSON.parse(fs.readFileSync('./service/mission.json'));
-loadGraphToken();
-loadIds();
+//loadGraphToken();
+//loadIds();
 /*給予demo用的通行証*/
 //crawler_info.set(master_setting['demo_token'],new Object());
 
+/*
 process.on('SIGTERM',()=>{
     console.log("[Server stop] ["+new Date()+"]");
-    track.storeInfo2File();
-    process.exit(0);
+    track.storeInfo2File('end');
 });
+*/
 
 process.on('SIGINT',()=>{
     console.log("[Server stop] ["+new Date()+"]");
-    track.storeInfo2File();
-    process.exit(0);
+    track.storeInfo2File('end');
 });
 
 

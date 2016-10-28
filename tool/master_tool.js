@@ -6,6 +6,7 @@ var fs = require('fs');
 var CronJob = require('cron').CronJob;
 var dateFormat = require('dateformat');
 var request = require('request');
+var LineByLineReader = require('line-by-line');
 
 var master_setting = JSON.parse(fs.readFileSync('./service/master_setting.json'));
 const center_ip = master_setting['center_ip'];
@@ -20,10 +21,16 @@ class Track{
         this.mission = JSON.parse(fs.readFileSync('./service/mission.json'));
         this.post_idInfo =  new Map();//(token,發出去的時間)
         this.trackPools={};//記錄pool name, pool用途描述, pool內擁有的track post info({post_id,created_time,pool_name})
-        this.crawlersInfo=new Map();//(token, info) -> info:(ip, port, created_time, active_time), active_time預設為crawler最後一次回報的時間, 但是crawlerSatus有記錄crawler的狀態(init, done, ${time}), time為crawler接收到任務的時間, 假設一直都是時間, 則代表自上次發出任務以來, crawler都沒有回報, 該crawler可能已經停擺, 需要做過期處理
-        this.crawlerSatus=new Map();//(token, status), status(init, done, ${time}), 交由missionStatus來管理, 記錄crawler的狀態
-        this.schedulesInfo=new Map();//(schedule name, info), info(description, track_time, track_pool_name, track_num, status), track_num:一次追蹤既幾個post id, status:該行程的開關狀態(on/off)
+        this.crawlersInfo=new Map();//(token, info) -> info({ip, port, created_time, active_time}), active_time預設為crawler最後一次回報的時間, 但是crawlerSatus有記錄crawler的狀態(init, done, ${time}), time為crawler接收到任務的時間, 假設一直都是時間, 則代表自上次發出任務以來, crawler都沒有回報, 該crawler可能已經停擺, 需要做過期處理
+        this.crawlerSatus=new Map();//(token, status), status(init/done/${time}), 交由missionStatus來管理, 記錄crawler的狀態
+        this.schedulesInfo=new Map();//(schedule name, info), info({description, track_time, track_pool_name, track_num, status}), track_num:一次追蹤既幾個post id, status:該行程的開關狀態(on/off)
+        this.cnt_store_file=0;
+        this.total_files_num=Object.keys(master_setting['service_store_info']['info_type']).length;
         this.schedulesJob=new Map();//(schedule name, schedule本體), 可借由schedulesJob(name).stop/start
+        this.readInfoFromFile('');
+        return true;
+        
+        
         /* 關於schedulesInfo, schedulesJob:
          * 創造新的行程時, 會先創建schedulesInfo, schedulesJob則會在開啟該行程時創建, 若行程關閉, 則
          * 會呼叫shutdownSingleSchedule來移除schedulesJob中的資訊, schedulesInfo則保留
@@ -59,57 +66,136 @@ class Track{
                 console.log('Success new schedule:['+schedules[i]['name']+']');
                 console.log('Content:'+JSON.stringify(this.schedulesInfo.get(schedules[i]['name']),null,2));
             }
-            /*
-            if(schedules[i]['status']=='on'){
-                this.startSchedules(schedules[i]['name']);
-            }
-            */
-            /*
-            let info={};
-            info['description']=schedules[i]['description'];
-            info['track_time']=schedules[i]['track_time'];
-            info['track_pool_name']=schedules[i]['track_pool_name'];
-            info['status']='off';
-            this.schedulesInfo.set(schedules[i]['name'],info);
-            */
-            //this.newSchedule({name:schedules[i]['name'],description:schedules[i]['description'],track_time:schedules[i]['track_time'],track_pool_name:schedules[i]['track_time']})
         }
         return true;
     }
     
-    storeInfo2File(){
-        this.write2File('map','post_idInfo',this.post_idInfo,false);
-        this.write2File('map','crawlersInfo',this.crawlersInfo,true);
-        this.write2File('map','crawlerSatus',this.crawlerSatus,true);
-        this.write2File('map','schedulesInfo',this.schedulesInfo,true);
-        this.write2File('object','trackPools',this.trackPools,true);
+    storeInfo2File(option){
+        this.write2File('map','post_idInfo',this.post_idInfo,false,option);
+        this.write2File('map','crawlersInfo',this.crawlersInfo,true,option);
+        this.write2File('map','crawlerSatus',this.crawlerSatus,false,option);
+        this.write2File('map','schedulesInfo',this.schedulesInfo,true,option);
+        this.write2File('object','trackPools',this.trackPools,true,option);
     }
 
     //TODO:testing
-    write2File(flag,info_type,info,parseFlag){
+    write2File(flag,info_type,info,parseFlag,option){
         console.log(`Store ${info_type} to file :`+service_store_info['info_type'][info_type]);
-        let writeStream = fs.createWriteStream(service_store_info['dir']+'/'+service_store_info['info_type'][info_type]);
+        var writeStream = fs.createWriteStream(service_store_info['dir']+'/'+service_store_info['info_type'][info_type]);
+
         if(flag=='map'){
             for(let [key,value] of info){
                 if(parseFlag){
                     value = JSON.stringify(value);
                 }
-                writeStream.write(`${key},${value}`);
+                writeStream.write(key+','+value+'\n');
             }
         }
         else{
-            writeStream.write(JSON.stringify(info)); 
+            writeStream.write(JSON.stringify(info,null,2)); 
         }
-
         writeStream.end();
-        console.log('Store info done : '+service_store_info['info_type'][info_type]);
+        writeStream.on('finish',()=>{
+            this.cnt_store_file++;
+            console.log('Store info done : '+service_store_info['info_type'][info_type]);
+            if(this.cnt_store_file==this.total_files_num){
+                if(option=='end'){
+                    console.log('Shutdown server after 5 secs...');
+                    setTimeout(()=>{
+                        process.exit(0);
+                    },5*1000);
+                }
+                else{
+                    this.cnt_store_file=0;
+                    console.log('All service has been saved!');
+                }
+            }
+        });
+
     }
 
     //TODO:testing
-    readInfoFromFile(){
-        
+    readInfoFromFile(option){
+        this.read2memory('map','post_idInfo',this.post_idInfo,false,option);
+        this.read2memory('map','crawlersInfo',this.crawlersInfo,true,option);
+        this.read2memory('map','crawlerSatus',this.crawlerSatus,false,option);
+        this.read2memory('map','schedulesInfo',this.schedulesInfo,true,option);
+        this.read2memory('object','trackPools',this.trackPools,true,option);
     }
+    read2memory(flag,info_type,info,parseFlag,option){
+        if(flag=='object'){
+            fs.readFile(service_store_info['dir']+'/'+service_store_info['info_type'][info_type],(err,data)=>{
+                var err_flag=0,err_msg='';
+                if(err){
+                    console.log('Can\'t read : '+service_store_info['dir']+'/'+service_store_info['info_type'][info_type]+' err:'+err);
+                    process.exit(0);
+                }
+                else{
+                    try{
+                        info = JSON.parse(data);
+                    }
+                    catch(e){
+                        err_flag=1;
+                        err_msg=e;
+                    }
+                    finally{
+                        if(err_flag){
+                            console.log('Can\'t parse : '+service_store_info['dir']+'/'+service_store_info['info_type'][info_type]+' err:'+err_msg);
+                            process.exit(0);
+                        }
+                        else{
+                            console.log('Loading success : '+service_store_info['dir']+'/'+service_store_info['info_type'][info_type]);
+                            console.log(JSON.stringify(info,null,2));
+                        }
+                    }
 
+                }
+            })
+        }
+        else if(flag=='map'){
+            var lr = new LineByLineReader(service_store_info['dir']+'/'+service_store_info['info_type'][info_type]);
+            let line_cnt=0;
+            let err_flag=0,err_msg='';
+            lr.on('error', function (err) {
+                console.log('Can\'t parse : '+service_store_info['dir']+'/'+service_store_info['info_type'][info_type]+' err:'+err_msg);
+                process.exit(0);
+            });
+            lr.on('line', function (line) {
+                line_cnt++;
+
+                if(!parseFlag){
+                    var parts = line.split(',');
+                    console.log(parts[0]+','+parts[1]);
+                    info.set(parts[0],parts[1]);
+                }
+                else{
+                    var parts = line.split(',{');
+                    parts[1]='{'+parts[1];
+                    console.log(parts[0]+','+parts[1]);
+                    try{
+                        var  obj = JSON.parse(parts[1]);
+                    }
+                    catch(e){
+                        err_flag=1;
+                        err_msg=e;
+                    }
+                    finally{
+                        if(err_flag){
+                            console.log('Can\'t parse : '+service_store_info['dir']+'/'+service_store_info['info_type'][info_type]+' err:'+err_msg);
+                            process.exit(0);
+                        }
+                        else{
+                            info.set(parts[0],obj);
+                        }
+                    }
+                }
+
+            });
+            lr.on('end', function () {
+                console.log('Loading success : '+service_store_info['dir']+'/'+service_store_info['info_type'][info_type]);
+            });
+        }
+    }
 
     listSchedules([...schedules]=[]){
         var results=[];
@@ -816,7 +902,6 @@ class Track{
                         return false;
                     }
                     else{
-
                         return true;
                     }
                 }
