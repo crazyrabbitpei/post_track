@@ -35,10 +35,8 @@ class Track{
         
         this.detect_expire = this.startDetectExpire();
 
-        /*
         this.readInfoFromFile('');
         return true;
-        */
 
         
         
@@ -102,7 +100,6 @@ class Track{
     } 
 
     storeInfo2File(option){
-
         this.write2File('map','sendoutList',this.sendoutList,false,option);
         this.write2File('map','crawlersInfo',this.crawlersInfo,true,option);
         this.write2File('map','crawlerSatus',this.crawlerSatus,false,option);
@@ -117,7 +114,7 @@ class Track{
         var writeStream = fs.createWriteStream(service_store_info['dir']+'/'+service_store_info['info_type'][info_type]);
 
         if(flag=='map'){
-            for(let [key,value] of info){
+            for(let [key,value] of info.entries()){
                 if(parseFlag){
                     value = JSON.stringify(value);
                 }
@@ -128,6 +125,9 @@ class Track{
             writeStream.write(JSON.stringify(info,null,2)); 
         }
         writeStream.end();
+        writeStream.on('error',(err)=>{
+            console.log(err);
+        })
         writeStream.on('finish',()=>{
             this.cnt_store_file++;
             console.log('Store info done : '+service_store_info['info_type'][info_type]);
@@ -1135,6 +1135,7 @@ function connect2DataCenter(fin){
         fin('off','Need not connect to my data center.');
         return;
     }
+    writeLog('process','Connecting to DataCenter...'+'http://'+center_ip+':'+center_port+'/');
     var _self=this;
     request({
         method:'GET',
@@ -1161,7 +1162,10 @@ function connect2DataCenter(fin){
                         fin(false,body);
                     }
                     else{
+                        writeLog('process','Success connect to DataCenter...'+'http://'+center_ip+':'+center_port+'/'+' Response:'+body);
                         fin(true,body);
+
+
                     }
                 }
             }
@@ -1186,6 +1190,7 @@ function connect2MyDataCenter(fin){
         return;
     }
     var _self=this;
+    writeLog('process','Connecting to MyDataCenter...'+'http://'+center_ip+':'+center_port+'/'+my_center_name+'/'+my_center_version+'/testConnect?access_token='+master_setting['control_token']);
     request({
         method:'GET',
         url:'http://'+my_center_ip+':'+my_center_port+'/'+my_center_name+'/'+my_center_version+'/testConnect?access_token='+master_setting['control_token'],
@@ -1207,6 +1212,7 @@ function connect2MyDataCenter(fin){
                     fin(false,err_msg);
                 }
                 else{
+                    writeLog('process','Success connect to MyDataCenter...'+'http://'+center_ip+':'+center_port+'/'+my_center_name+'/'+my_center_version+'/testConnect?access_token='+master_setting['control_token']+' Response:'+body);
                     fin(true,body);
                 }
             }

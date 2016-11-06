@@ -110,6 +110,7 @@ function uploadTrackPostData(master_button,{data,datatype},{center_ip,center_por
         data = JSON.stringify(data);
     }
     console.log('Upload data:http://'+center_ip+':'+center_port+center_url);
+    fs.appendFile('./link','Upload data:http://'+center_ip+':'+center_port+center_url+'\n',(err)=>{});
     var options = {
         hostname:center_ip,
         port:center_port,
@@ -128,6 +129,11 @@ function uploadTrackPostData(master_button,{data,datatype},{center_ip,center_por
             body+=chunk;
         });
         res.on('end', () => {
+            /*
+            fs.appendFile('./watch','Upload data:http://'+center_ip+':'+center_port+center_url+' body:'+body+'\n',(err)=>{
+
+            })
+            */
             if(res.statusCode==200){
                 var err_msg='';
                 var err_flag=0
@@ -147,9 +153,7 @@ function uploadTrackPostData(master_button,{data,datatype},{center_ip,center_por
                             fin('false',content['error']);   
                         }
                         else{
-                            fs.appendFile('./watch'.content+'\n',(err)=>{
-                                
-                            })
+
                             fin('ok',content['result']);   
                         }
                     }

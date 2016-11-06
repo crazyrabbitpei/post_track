@@ -30,8 +30,8 @@ var track = new master_tool.Track();
  */
 var master_setting = JSON.parse(fs.readFileSync('./service/master_setting.json'));
 var mission = JSON.parse(fs.readFileSync('./service/mission.json'));
-loadGraphToken();
-loadIds();
+//loadGraphToken();
+//loadIds();
 
 /*給予demo用的通行証*/
 //crawler_info.set(master_setting['demo_token'],new Object());
@@ -45,9 +45,13 @@ process.on('SIGTERM',()=>{
 
 process.on('SIGINT',()=>{
     console.log("[Server stop] ["+new Date()+"]");
+    clearInterval(store_service_file);
     track.storeInfo2File('end');
 });
 
+var store_service_file = setInterval(()=>{
+    track.storeInfo2File('');
+},10*1000);
 
 /*所有的request都必須被檢查其access token*/
 master.use(function(req,res,next){
