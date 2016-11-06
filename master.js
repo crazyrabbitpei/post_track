@@ -30,8 +30,9 @@ var track = new master_tool.Track();
  */
 var master_setting = JSON.parse(fs.readFileSync('./service/master_setting.json'));
 var mission = JSON.parse(fs.readFileSync('./service/mission.json'));
-//loadGraphToken();
-//loadIds();
+loadGraphToken();
+loadIds();
+
 /*給予demo用的通行証*/
 //crawler_info.set(master_setting['demo_token'],new Object());
 
@@ -66,8 +67,8 @@ master.use(function(req,res,next){
         if(!access_token){
             access_token = req.query['access_token'];
         }
-        if(!data_crawler.get(access_token)){
-            console.log('Path:'+req.path+' [Data crawler API] err token ['+req.params['control_token']+']');
+        if(!data_crawler.get(access_token)&&master_setting['control_token']!=access_token){
+            console.log('Path:'+req.path+' [Data crawler API] err token :['+access_token+']');
             sendResponse(res,'token_err','','');
         }
         else{
@@ -168,7 +169,7 @@ master.post('/apply',function(req,res){
     track.insertCrawler(access_token,{ip:req.ip,port:req.port});
 
     sendResponse(res,'ok',200,result);
-    track.sendApply2DataCenter(access_token,{ip:req.ip,port:req.port},{center_ip:master_setting['center_ip'],center_port:master_setting['center_port'],center_name:master_setting['center_name'],center_version:master_setting['center_version'],control_token:master_setting['control_token']});   
+    track.sendApply2DataCenter(access_token,{ip:req.ip,port:req.port},{center_ip:master_setting['my_center_ip'],center_port:master_setting['my_center_port'],center_name:master_setting['my_center_name'],center_version:master_setting['my_center_version'],control_token:master_setting['control_token']});   
     //console.log('Master:\n'+JSON.stringify(track.listCrawlers(),null,3));
 
 });
@@ -189,9 +190,12 @@ master.route('/mission_report')
     var access_token = req.body['access_token'];
     var mission_status = req.body['mission_status'];
     var success_ids=req.body['data']['success'];
-    var fai_ids=req.body['data']['fail'];
-    console.log('Master receive:\n'+JSON.stringify(req.body,null,3));
+    var fail_ids=req.body['data']['fail'];
 
+    //console.log('Master receive:\n'+JSON.stringify(req.body,null,3));
+    //將已完成的post從post_idInfo中移除，將失敗的post也移除，並放入失敗pool裡待抓取
+    track.postTrackFinish('success',success_ids);
+    track.postTrackFinish('fail',fail_ids);
 
     var result;
 
@@ -203,39 +207,6 @@ master.route('/mission_report')
         result='Update crawler ['+access_token+'] status fail!';
         sendResponse(res,'fail',200,result);
     }
-    if(test_flag==0){
-        //randomId({time:10,rec_num:5});
-        /*
-        setTimeout(function(){
-            track.startSchedules('demo2');
-            track.stopSchedules('demo1');
-        },10*1000);
-        */
-        /*
-        setTimeout(function(){
-            track.deleteSchedule('demo1');
-        },15*1000);
-        */
-        test_flag=1;
-    }
-
-    return;
-
-    /*
-    var ip='nubot3.ddns.net';
-    var port='3790';
-    var crawler_name='trackingCrawler';
-    var crawler_version='v1.0';
-    var control_token='rabbit';
-    sendMission(ip,port,crawler_name,crawler_version,control_token,access_token,(flag,msg)=>{
-        if(flag=='ok'){
-            console.log('Master get res from crawler:\n'+msg['data']);
-        }
-        else{
-            console.log('Master ['+flag+'] '+msg);
-        }
-    });
-    */
 })
 .get(function(req,res){
     /*
@@ -283,7 +254,7 @@ master.route('/post_id')
     var success_id=[];
     track_pages.map(function(post){
         /*該post已存在於tracking list*/
-        if(!track.insertIdsToPool(post.id,{created_time:post.created_time,pool_name:post.pool_name})){
+        if(!track.insertIdToPool(post.id,{created_time:post.created_time,pool_name:post.pool_name})){
             fail_id.push(post.id);
         }
         else{
@@ -508,7 +479,7 @@ function loadIds(){
         line_cnt++;
         /*TODO:構想追蹤id list存放格式，之後要依欄位讀入memory，1.將post id作為key  2.是否被追蹤過 true/false ，被追蹤過的話則可以忽略不讀進memory 3.是否再次追蹤 true/false 4.發佈時間，沒有就留空 5.欲放入的pool name，沒有就留空*/
         var parts = line.split(',');
-        if(!track.insertIdsToPool(parts[0],{pool_name:parts[4],created_time:parts[3]})){
+        if(!track.insertIdToPool(parts[0],{pool_name:parts[4],created_time:parts[3]})){
             console.log(`Loading error : ${line_cnt}`);
         }
     });
@@ -607,8 +578,8 @@ function produceIds(option='test1',{rec_num=5,id_max=1000000,id_min=200000,date_
         else{
             post['created_time']='2016/09/28 16:00:12';
         }
-        if(!track.insertIdsToPool(post['id'],{pool_name:post['pool_name'],created_time:post['created_time']})){
-            //if(!test.insertIdsToPool(post['id'],{pool_name:post['pool_name'],created_time:post['created_time']})){
+        if(!track.insertIdToPool(post['id'],{pool_name:post['pool_name'],created_time:post['created_time']})){
+            //if(!test.insertIdToPool(post['id'],{pool_name:post['pool_name'],created_time:post['created_time']})){
             console.log('Insert id ['+post['id']+'] ['+post['created_time']+']to pool ['+post['pool_name']+'] fail!');
         }
         else{

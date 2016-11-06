@@ -321,21 +321,38 @@ function flush(){
     }
 
     if(write2Local){
+        console.log('Flush!');
         track_tool.writeRec(mission['info']['datatype'],final_result);
     }
 
-    track_tool.uploadTrackPostData(mission['token']['access_token'],{data:final_result,datatype:mission['info']['datatype']},(flag,msg)=>{
+    track_tool.my_uploadTrackPostData(mission['info']['master'],mission['token']['access_token'],{data:final_result,datatype:mission['info']['datatype']},{center_ip:mission['info']['my_center_ip'],center_port:mission['info']['my_center_port'],center_name:mission['info']['my_center_name'],center_version:mission['info']['my_center_version']},(flag,msg)=>{
         if(flag=='ok'){
             console.log(msg);
         }
         else if(flag=='err'){
             console.log(msg);
         }
-        final_result={};//存放所有結果
-        final_result['data']=[];
-        rec_num=0;
-        rec_size=0;
+        else if(flag=='off'){
+            console.log(msg);
+        }
+        
+
     });
+    track_tool.uploadTrackPostData(mission['info']['master'],{data:final_result,datatype:mission['info']['datatype']},{center_ip:mission['info']['center_ip'],center_port:mission['info']['center_port'],center_url:mission['info']['center_url']},(flag,msg)=>{
+        if(flag=='ok'){
+            console.log(msg);
+        }
+        else if(flag=='err'){
+            console.log(msg);
+        }
+        else if(flag=='off'){
+            console.log(msg);
+        }
+    });
+    final_result={};//存放所有結果
+    final_result['data']=[];
+    rec_num=0;
+    rec_size=0;
 }
 /**
  * --階段--
@@ -400,43 +417,62 @@ else{
             }
             else if(_version=='test2'){
                 mission['token']['access_token']=crawler_setting['mission']['access_token'];
-                master_tool.connect2DataCenter((flag,msg)=>{
-                    console.log('connect2DataCenter, '+msg);
-                    if(flag){
-                        app.use('/'+master_name+'/'+master_version,master);
+                master_tool.connect2MyDataCenter((flag,msg)=>{
+                    console.log('connect2MyDataCenter, '+msg);
+                    if(flag||flag=='off'){
+                        master_tool.connect2DataCenter((flag,msg)=>{
+                            console.log('connect2DataCenter, '+msg);
+                            if(flag||flag=='off'){
+                                app.use('/'+master_name+'/'+master_version,master);
+                            }
+                            else{
+                                console.log('Can\'t connect to Data Center!');
+                                process.exit(0);
+                            }
+                        });
                     }
                     else{
-                        console.log('Can\'t connect to Data Center!');
-                        process.exit();
+                        console.log('Can\'t connect to My Data Center!');
+                        process.exit(0);
                     }
                 });
             }
             /*此模式為了要測試master的manageTracking API，需要準備一個偽data crawler來抓取fb資料，並呼叫manageTracking API來將抓取到的post id, created_time塞給track master做儲存*/
             else if(_version=='test3'){
                 mission['token']['access_token']=crawler_setting['mission']['access_token'];
-                master_tool.connect2DataCenter((flag,msg)=>{
-                    console.log('connect2DataCenter, '+msg);
-                    if(flag){
-                        app.use('/'+master_name+'/'+master_version,master);
-                        track_tool.applyCrawler({crawler_port,master_ip,master_port,master_name,master_version,invite_token},(flag,msg)=>{
-                            if(flag=='ok'&&msg&&msg['data']&&msg['status']=='ok'){
-                                app.use('/'+crawler_name+'/'+crawler_version,crawler);
-                                mission['token']['graph_token']=msg['data']['graph_token'];
-                                mission['token']['access_token']=msg['data']['access_token'];
-                                console.log('Apply success:'+JSON.stringify(msg,null,3));
-                                track_tool.listTrack({master_ip,master_port,master_name,master_version,access_token:mission['token']['access_token']},(flag,msg)=>{
-                                    //console.log('listTrack:\n'+JSON.stringify(msg,null,3));
+                master_tool.connect2MyDataCenter((flag,msg)=>{
+                    console.log('connect2MyDataCenter, '+msg);
+                    if(flag||flag=='off'){
+                        master_tool.connect2DataCenter((flag,msg)=>{
+                            console.log('connect2DataCenter, '+msg);
+                            if(flag||flag=='off'){
+
+                                app.use('/'+master_name+'/'+master_version,master);
+                                track_tool.applyCrawler({crawler_port,master_ip,master_port,master_name,master_version,invite_token},(flag,msg)=>{
+                                    if(flag=='ok'&&msg&&msg['data']&&msg['status']=='ok'){
+                                        app.use('/'+crawler_name+'/'+crawler_version,crawler);
+                                        mission['token']['graph_token']=msg['data']['graph_token'];
+                                        mission['token']['access_token']=msg['data']['access_token'];
+                                        console.log('Apply success:'+JSON.stringify(msg,null,3));
+                                        
+                                        track_tool.listTrack({master_ip,master_port,master_name,master_version,access_token:mission['token']['access_token']},(flag,msg)=>{
+                                            //console.log('listTrack:\n'+JSON.stringify(msg,null,3));
+                                        });
+                                    }
+                                    else{
+                                        console.log('['+flag+'] '+msg);
+                                    }
                                 });
                             }
                             else{
-                                console.log('['+flag+'] '+msg);
+                                console.log('Can\'t connect to Data Center!');
+                                process.exit(0);
                             }
-
                         });
                     }
                     else{
-                        console.log('Can\'t connect to Data Center!');
-                        process.exit();
+                        console.log('Can\'t connect to My Data Center!');
+                        process.exit(0);
                     }
                 });
 

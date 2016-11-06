@@ -9,17 +9,22 @@ var request = require('request');
 var LineByLineReader = require('line-by-line');
 
 var master_setting = JSON.parse(fs.readFileSync('./service/master_setting.json'));
+
 const center_ip = master_setting['center_ip'];
 const center_port = master_setting['center_port'];
-const center_name = master_setting['center_name'];
-const center_version = master_setting['center_version'];
+const center_url = master_setting['center_url'];
+
+const my_center_ip = master_setting['my_center_ip'];
+const my_center_port = master_setting['my_center_port'];
+const my_center_name = master_setting['my_center_name'];
+const my_center_version = master_setting['my_center_version'];
 const service_store_info = master_setting['service_store_info'];
 
 
 class Track{
     constructor(){
         this.mission = JSON.parse(fs.readFileSync('./service/mission.json'));
-        this.post_idInfo =  new Map();//(token,發出去的時間)
+        this.sendoutList =  new Map();//(token,發出去的時間)
         this.trackPools={};//記錄pool name, pool用途描述, pool內擁有的track post info({post_id,created_time,pool_name})
         this.crawlersInfo=new Map();//(token, info) -> info({ip, port, created_time, active_time}), active_time預設為crawler最後一次回報的時間, 但是crawlerSatus有記錄crawler的狀態(init, done, ${time}), time為crawler接收到任務的時間, 假設一直都是時間, 則代表自上次發出任務以來, crawler都沒有回報, 該crawler可能已經停擺, 需要做過期處理
         this.crawlerSatus=new Map();//(token, status), status(init/done/${time}), 交由missionStatus來管理, 記錄crawler的狀態
@@ -27,8 +32,14 @@ class Track{
         this.cnt_store_file=0;
         this.total_files_num=Object.keys(master_setting['service_store_info']['info_type']).length;
         this.schedulesJob=new Map();//(schedule name, schedule本體), 可借由schedulesJob(name).stop/start
+        
+        this.detect_expire = this.startDetectExpire();
+
+        /*
         this.readInfoFromFile('');
         return true;
+        */
+
         
         
         /* 關於schedulesInfo, schedulesJob:
@@ -36,6 +47,8 @@ class Track{
          * 會呼叫shutdownSingleSchedule來移除schedulesJob中的資訊, schedulesInfo則保留
          * 等到下次再次開啟時才會呼叫createSingleSchedule去讀取schedulesInfo的資訊來創建schedulesJob
          * */
+        
+        /*以下為舊程式，所有設定檔和環境由master setting理所指定*/
 
         for(let i=0,pools=master_setting.trackpools,keys=Object.keys(pools);i<keys.length;i++){
             let key=keys[i];
@@ -69,9 +82,28 @@ class Track{
         }
         return true;
     }
-    
+    startDetectExpire(){
+        var _self = this;
+       //偵測很久都沒收到追蹤回應的post id，將其從sendoutList刪除，並移到expire pool
+        return new CronJob({
+            cronTime:master_setting['expire_detect'],
+            onTick:function(){
+                for(let [key,value] of _self.sendoutList.entries()){
+                    if(value!=0&&isExpire(value)){
+                        console.log('Expire:'+key+' Move to expire pool!');
+                        _self.sendoutList.delete(key);
+                        _self.insertIdToPool(key,{pool_name:'expire'});
+                    }
+                }    
+            },
+            start:true,
+            timeZone:'Asia/Taipei'
+        });
+    } 
+
     storeInfo2File(option){
-        this.write2File('map','post_idInfo',this.post_idInfo,false,option);
+
+        this.write2File('map','sendoutList',this.sendoutList,false,option);
         this.write2File('map','crawlersInfo',this.crawlersInfo,true,option);
         this.write2File('map','crawlerSatus',this.crawlerSatus,false,option);
         this.write2File('map','schedulesInfo',this.schedulesInfo,true,option);
@@ -81,6 +113,7 @@ class Track{
     //TODO:testing
     write2File(flag,info_type,info,parseFlag,option){
         console.log(`Store ${info_type} to file :`+service_store_info['info_type'][info_type]);
+        writeLog('process',`Store ${info_type} to file :`+service_store_info['info_type'][info_type]);
         var writeStream = fs.createWriteStream(service_store_info['dir']+'/'+service_store_info['info_type'][info_type]);
 
         if(flag=='map'){
@@ -116,14 +149,16 @@ class Track{
 
     //TODO:testing
     readInfoFromFile(option){
-        this.read2memory('map','post_idInfo',this.post_idInfo,false,option);
+        this.read2memory('map','sendoutList',this.sendoutList,false,option);
         this.read2memory('map','crawlersInfo',this.crawlersInfo,true,option);
         this.read2memory('map','crawlerSatus',this.crawlerSatus,false,option);
         this.read2memory('map','schedulesInfo',this.schedulesInfo,true,option);
-        this.read2memory('object','trackPools',this.trackPools,true,option);
+        this.read2memory('trackPools','trackPools',this.trackPools,true,option);
     }
+    /*TODO:讀取trackPools的方式比較奇怪，要改，無法借由改動info來改變this.trackPools，所以這邊直接改this.trackPools*/
     read2memory(flag,info_type,info,parseFlag,option){
-        if(flag=='object'){
+        writeLog('process',`Read ${info_type} to memory :`+service_store_info['info_type'][info_type]);
+        if(flag=='trackPools'){
             fs.readFile(service_store_info['dir']+'/'+service_store_info['info_type'][info_type],(err,data)=>{
                 var err_flag=0,err_msg='';
                 if(err){
@@ -132,7 +167,7 @@ class Track{
                 }
                 else{
                     try{
-                        info = JSON.parse(data);
+                        this.trackPools = JSON.parse(data);
                     }
                     catch(e){
                         err_flag=1;
@@ -145,7 +180,20 @@ class Track{
                         }
                         else{
                             console.log('Loading success : '+service_store_info['dir']+'/'+service_store_info['info_type'][info_type]);
-                            console.log(JSON.stringify(info,null,2));
+                            writeLog('process','Loading success : '+service_store_info['dir']+'/'+service_store_info['info_type'][info_type]);
+                            /*
+                            fs.appendFile('./pool_test',JSON.stringify(this.trackPools,null,2)+'\n',(err)=>{
+                                if(err){
+                                    console.log(err);
+                                }
+                                else{
+                                    console.log('Write post pool! Length:'+Object.keys(this.trackPools).length);
+                                    //this.listPools();
+                                }
+                            });
+                            */
+
+                            //console.log(JSON.stringify(info,null,2));
                         }
                     }
 
@@ -193,6 +241,7 @@ class Track{
             });
             lr.on('end', function () {
                 console.log('Loading success : '+service_store_info['dir']+'/'+service_store_info['info_type'][info_type]);
+                writeLog('process','Loading success : '+service_store_info['dir']+'/'+service_store_info['info_type'][info_type]);
             });
         }
     }
@@ -287,21 +336,21 @@ class Track{
     *       *若算出的追蹤日期大於今天日期，則列到'past' pool
     *
     * */
-    //insertIdsToPool(post_id,...args){
-    insertIdsToPool(post_id,{pool_name,created_time}={}){
-
+    insertIdToPool(post_id,{pool_name,created_time}={}){
         if(!post_id){
             return false;
         }
-        /*TODO*/
-        /*不允許post id重複，即使是在不同pool*/
+        /*
         if(this.hasPostId()){
             return false;
         }
-        else{
-            this.post_idInfo.set(post_id,0);
+        else{//新的post id，儲存
+            if(pool_name&&pool_name!='expire'){
+                this.sendoutList.set(post_id,0);
+            }
         }
-        console.log('Set:'+post_id+' '+this.post_idInfo.get(post_id)+' pool:'+pool_name);
+        */
+        //console.log('Set:'+post_id+' '+this.sendoutList.get(post_id)+' pool:'+pool_name);
 
         var name;
         /*
@@ -309,8 +358,9 @@ class Track{
             pool_name=args[0]['pool_name'],created_time=args[0]['created_time'];
         }
         */
-
+        //有指定塞入的pool_name
         if(pool_name){
+            //若該pool不存在，則拒絕塞入
             if(!this.checkPoolName(pool_name)){
                 return false
             }
@@ -320,26 +370,29 @@ class Track{
         }
 
         if(created_time){
+            //檢查日期格式是否正確
             if(checkDateFormat(created_time)){
-                created_time=deafultDate(created_time);
-                if(isPast(created_time)){
-                    if(!name){
+                created_time=deafultDate(created_time);//將日期格式統一
+                if(isPast(created_time)){//檢查貼文是否已超過可追蹤的日期
+                    if(!name){//pool_name指定高於貼文日期
                         name=master_setting.trackpools['past']['name'];
                     }
                 }
-                else{
+                /*
+                else{//追蹤範圍日期
                     created_time=dateFormat(created_time,'yyyy/mm/dd HH:MM:ss');
                 }
+                */
 
             }
-            else{
+            else{//若是錯誤的日期，則將貼文日期設為今日
                 created_time=deafultDate();
             }
         }
         else{
             created_time=deafultDate();
         }
-        /*如果沒有指定的pool name，則用日期來解析出pool_name，例：2016 09/11 09:11:22 => poolname: 09/11*/
+        /*如果沒有指定的pool name，則用日期來解析出pool_name，例：2016 09/11 09:11:22，指定3天後追蹤 => poolname: 09/14*/
         if(!name){
             if(!(name = this.parsePoolName(created_time))){//如果created_time格是不是日期，則回傳原本的created_time值，例：I'm not a date=> poolname:I'm not a date
                 return false;
@@ -352,6 +405,7 @@ class Track{
 
         return true;
     }
+    //一律從trackPools[pool_name]裡拿post id，sendoutList只是用來記錄此id的發出狀況，若成功抓取，則應該從sendoutList中移除，並定時觀察sendoutList裡是否有超過一定時間沒搜集完成的id(有發出時間在上面，並且已超過指定搜集時間)
     shiftTrackId(pool_name,track_num=master_setting.ids_num){
         if(!pool_name||!this.trackPools[pool_name]){
             return false;
@@ -362,13 +416,20 @@ class Track{
             //for(let i=0,id = this.trackPools[pool_name]['data'].shift();i<track_num&&id;i++){
             for(i=0;i<track_num;i++){
                 let id = this.trackPools[pool_name]['data'].shift();
-                if(!id||!this.post_idInfo.has(id['post_id'])){
+                if(!id){//沒有可以追蹤的項目
                     break;
                 }
-                result.push(id);
+                //檢查拿到的id是否目前正在被抓取
+                if(!this.sendoutList.has(id['post_id'])){//不存在正在抓取清單
+                    result.push(id);
+                }
+                else{
+                    i--;
+                }
             }
         }
-        if(i==0){
+
+        if(result.length==0){
             return false;
         }
         return result;
@@ -383,7 +444,7 @@ class Track{
     }
     /*TODO:testing*/
     hasPostId(id){
-        if(!id||!this.post_idInfo.has(id)){
+        if(!id||!this.sendoutList.has(id)){
             return false;
         }
         return true;
@@ -401,6 +462,7 @@ class Track{
         if(this.checkPoolName(pool_name)){
             return false;
         }
+
         var description='test_'+pool_name;
         if(args[0]){
             if(args[0]['description']){
@@ -635,16 +697,18 @@ class Track{
     }
     createSingleSchedule(schedule_name){
         if(!this.schedulesInfo.has(schedule_name)){return false;}//此行程名稱不存在清單裡
-        console.log('1.');
+        writeLog('process','Creating single schedule:'+schedule_name);
+        console.log('1. Creating single schedule:'+schedule_name);
         let info = this.schedulesInfo.get(schedule_name);
         if(info['status']=='on'){return false;}//此行程已開啓，不能再開第二次
-        console.log('2.');
+        writeLog('process','Turn on shedule:'+schedule_name);
+        console.log('2. Turn on shedule:'+schedule_name);
         var _self=this;
         let name = schedule_name;
+        console.log('Start ['+name+'], time:'+info['track_time']);
         let schedule = new CronJob({
             cronTime:info['track_time'],
             onTick:function(){
-
                 let track_pool;
                 if(info['track_pool_name']=='default'){
                     track_pool = (new Date().getMonth()+1)+'/'+new Date().getDate();
@@ -652,8 +716,8 @@ class Track{
                 else{
                     track_pool = info['track_pool_name'];
                 }
-                console.log('Start ['+name+'], time:'+info['track_time']+' pool:'+track_pool);
-                var crawler,ids;
+                console.log('Schedule:'+name+' Detecting pool '+track_pool+'...');
+                var crawler=true,ids=true;
                 /*行程設定時間一到，先檢查有無可指派任務的crawler，再檢查有無id可發出。*/
                 while((crawler = _self.findMissionCrawler())&&(ids = _self.shiftTrackId(track_pool,info['track_num']))){
                     //_self.crawlerSatus.set(crawler['token'],'ing');
@@ -662,13 +726,22 @@ class Track{
                     /*TODO:testing*/
                     _self.recordPostSendTime(ids);
 
-
                     console.log('Crawler:'+JSON.stringify(crawler,null,3)+'\nids:'+JSON.stringify(ids,null,3));
                     /*TODO:crawler_name,crawler_version,control_token之後也是由client給予，資訊會一起包在info裡，目前先用server端預設*/
                     _self.sendMission(crawler['token'],{ip:crawler['info']['ip'],port:crawler['info']['port'],crawler_name:master_setting.crawler_name,crawler_version:master_setting.crawler_version,control_token:master_setting.control_token,track_ids:ids});
                 }
+                
+                //如果該pool已經空了，並且不為expire, past, fail pool(代表為一般追蹤pool，時間到就會去搜集，假設空了代表已清空，ex:預計9/11追蹤的pool已經沒有可追蹤的id，則可以停止追蹤該pool的schedule)，expire那些pool可能隨時會新增，為常駐schedule，不用停止
+                if(!ids){
+                    if(track_pool!='expire'&&track_pool!='past'&&track_pool!='fail'){
+                        console.log('Stop schedule:'+name);
+                        writeLog('process','Stop schedule:'+name);
+                        _self.stopSchedules([name]);    
+                    }
+                }
+
                 /*
-                if(_self.hasTrackId(track_pool)&&(crawler = _self.findMissionCrawler())){
+                   if(_self.hasTrackId(track_pool)&&(crawler = _self.findMissionCrawler())){
                     let ids = _self.shiftTrackId(track_pool,info['track_num']);
                     console.log('Crawler:'+JSON.stringify(crawler,null,3)+'\nids:'+JSON.stringify(ids,null,3));
                 }
@@ -692,9 +765,26 @@ class Track{
     /*TODO*/
     recordPostSendTime([...ids]=[]){
         for(let i=0;i<ids.length;i++){
-            this.post_idInfo.set(ids[i]['post_id'],new Date());//記錄發出時間
-            console.log('Send:'+ids[i]['post_id']+' '+this.post_idInfo.get(ids[i]['post_id']));
+            this.sendoutList.set(ids[i]['post_id'],new Date());//記錄發出時間
+            console.log('Send:'+ids[i]['post_id']+' '+this.sendoutList.get(ids[i]['post_id']));
         }
+    }
+    postTrackFinish(stat,[...ids]=[]){
+        for(let i=0;i<ids.length;i++){
+            this.sendoutList.delete(ids[i]);
+            if(stat=='fail'){
+                this.insertIdToPool(ids[i],{pool_name:'fail'});
+            }
+        }
+        if(ids.length!=0){
+            if(stat=='success'){
+                console.log('Finish:'+ids.join(','));
+            }
+            else if(stat=='fail'){
+                console.log('Fail:'+ids.join(',')+'  Move to fail pool!');
+            }
+        }
+
     }
     /*停止時，會連同整個行程(schedulesJob)一起刪除，但是資訊(schedulesInfo)還會在*/
     stopSchedules([...schedules]=[]){
@@ -711,10 +801,15 @@ class Track{
         return true;
     }
     shutdownSingleSchedule(schedule_name){
-        if(!this.schedulesJob.has(schedule_name)){return false;}
+        writeLog('process','Shutdown schedule:'+schedule_name);
+        if(!this.schedulesJob.has(schedule_name)){
+            writeLog('process','Schedule:'+schedule_name+' not exist!');
+            console.log('Schedule:'+schedule_name+' not exist!');
+            return false;
+        }
         this.schedulesJob.get(schedule_name).stop();
         this.schedulesJob.delete(schedule_name);
-
+        
         let info = this.schedulesInfo.get(schedule_name);
         info['status']='off';
         return true;
@@ -730,7 +825,8 @@ class Track{
         if(this.schedulesInfo.get(schedule_name)['status']=='on'){
             this.stopSchedules([schedule_name]);    
         }
-
+        
+        writeLog('process','Delete schedule:'+schedule_name);
         this.schedulesInfo.delete(schedule_name);
         return true;
     }
@@ -800,7 +896,9 @@ class Track{
         return true;
     }
     sendApply2DataCenter(crawler_token,crawler_info,{center_ip,center_port,center_name,center_version,control_token}){
-        console.log('sendApply2DataCenter:'+JSON.stringify(crawler_info)+'\n'+'http://'+center_ip+':'+center_port+'/'+center_name+'/'+center_version+'/apply/'+crawler_token);
+        
+        writeLog('process','Connecting to MyDataCenter...'+'http://'+center_ip+':'+center_port+'/'+center_name+'/'+center_version+'/apply/{crawler_token}');
+        //console.log('sendApply2DataCenter:'+JSON.stringify(crawler_info)+'\n'+'http://'+center_ip+':'+center_port+'/'+center_name+'/'+center_version+'/apply/'+crawler_token);
         var _self=this;
         request({
             method:'POST',
@@ -831,7 +929,7 @@ class Track{
                         return false;
                     }
                     else{
-
+                        writeLog('process','Success connect to MyDataCenter!');
                         return true;
                     }
                 }
@@ -841,7 +939,7 @@ class Track{
                     console.log('sendApply2DataCenter, '+err.code);
                     if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
                         setTimeout(function(){
-                            _self.sendApply2DataCenter(crawler_token,crawler_info,{center_ip,center_port,center_name,center_version,control_token})
+                            _self.sendApply2DataCenter(crawler_token,crawler_info,{center_ip,center_port,center_name,center_version,control_token});
                         },master_setting['crawler_timeout_again']*1000);
                     }
                     else{
@@ -853,7 +951,7 @@ class Track{
                     console.log('sendApply2DataCenter, '+res.statusCode);
                     if(res.statusCode>=500&&res.statusCode<600){
                         setTimeout(function(){
-                            _self.sendApply2DataCenter(crawler_token,crawler_info,{center_ip,center_port,center_name,center_version,control_token})
+                            _self.sendApply2DataCenter(crawler_token,crawler_info,{center_ip,center_port,center_name,center_version,control_token});
                         },master_setting['crawler_timeout_again']*1000);
                     }
                     else{
@@ -871,7 +969,7 @@ class Track{
         this.mission['track_posts'] = track_ids.map(function(x){
             return x.post_id;
         });
-        console.log('Master send:'+JSON.stringify(this.mission,null,3)+'URL:http://'+ip+':'+port+'/'+crawler_name+'/'+crawler_version+'/mission');
+        //console.log('Master send:'+JSON.stringify(this.mission,null,3)+'URL:http://'+ip+':'+port+'/'+crawler_name+'/'+crawler_version+'/mission');
         //return;
         request({
             method:'POST',
@@ -1033,61 +1131,130 @@ class DataCenter{
 
 }
 function connect2DataCenter(fin){
-        var _self=this;
-        request({
-            method:'GET',
-            url:'http://'+center_ip+':'+center_port+'/'+center_name+'/'+center_version+'/testConnect?access_token='+master_setting['control_token'],
-            timeout:master_setting['request_timeout']*1000
-        },(err,res,body)=>{
-            if(!err&&res.statusCode==200){
-                var err_msg='';
-                var err_flag=0
-                try{
-                    var content = body;
-                }
-                catch(e){
-                    err_flag=1;
-                    err_msg=e;
-                }
-                finally{
-                    if(err_flag==1){
-                        writeLog('err','connect2DataCenter, '+err_msg);
-                        fin(false,err_msg);
-                    }
-                    else{
-                        fin(true,content);
-                    }
-                }
+    if(master_setting['master']['data']=='off'){
+        fin('off','Need not connect to my data center.');
+        return;
+    }
+    var _self=this;
+    request({
+        method:'GET',
+        url:'http://'+center_ip+':'+center_port+'/',
+        timeout:master_setting['request_timeout']*1000
+    },(err,res,body)=>{
+        if(!err&&res.statusCode==200){
+            var err_msg='';
+            var err_flag=0
+            try{
+                var content = JSON.parse(body);
             }
-            else{
-                if(err){
-                    console.log('connect2DataCenter, '+err.code);
-                    writeLog('err','connect2DataCenter, '+err);
-                    fin(false,err);
+            catch(e){
+                err_flag=1;
+                err_msg=e;
+            }
+            finally{
+                if(err_flag==1){
+                    writeLog('err','connect2DataCenter, '+err_msg);
+                    fin(false,err_msg);
                 }
                 else{
-                    console.log('connect2DataCenter, '+res.statusCode);
-                    writeLog('err','connect2DataCenter, '+res['statusCode']+', '+body['err']);
-                    fin(false,res['statusCode']+', '+body['err']);
+                    if(content['error']&&content['error']!=''){
+                        fin(false,body);
+                    }
+                    else{
+                        fin(true,body);
+                    }
                 }
             }
-        });
+        }
+        else{
+            if(err){
+                console.log('connect2DataCenter, '+err.code);
+                writeLog('err','connect2DataCenter, '+err);
+                fin(false,err);
+            }
+            else{
+                console.log('connect2DataCenter, '+res.statusCode);
+                writeLog('err','connect2DataCenter, '+res['statusCode']+', '+body);
+                fin(false,res['statusCode']+', '+body);
+            }
+        }
+    });
+}
+function connect2MyDataCenter(fin){
+    if(master_setting['master']['my_data']=='off'){
+        fin('off','Need not connect to my data center.');
+        return;
+    }
+    var _self=this;
+    request({
+        method:'GET',
+        url:'http://'+my_center_ip+':'+my_center_port+'/'+my_center_name+'/'+my_center_version+'/testConnect?access_token='+master_setting['control_token'],
+        timeout:master_setting['request_timeout']*1000
+    },(err,res,body)=>{
+        if(!err&&res.statusCode==200){
+            var err_msg='';
+            var err_flag=0
+            try{
+                var content = JSON.parse(body);
+            }
+            catch(e){
+                err_flag=1;
+                err_msg=e;
+            }
+            finally{
+                if(err_flag==1){
+                    writeLog('err','connect2MyDataCenter, '+err_msg);
+                    fin(false,err_msg);
+                }
+                else{
+                    fin(true,body);
+                }
+            }
+        }
+        else{
+            if(err){
+                console.log('connect2MyDataCenter, '+err.code);
+                writeLog('err','connect2MyDataCenter, '+err);
+                fin(false,err);
+            }
+            else{
+                console.log('connect2MyDataCenter, '+res.statusCode);
+                writeLog('err','connect2MyDataCenter, '+res['statusCode']+', '+body);
+                fin(false,res['statusCode']+', '+body);
+            }
+        }
+    });
 }
 
 exports.DataCenter=DataCenter;
 exports.Track=Track;
 exports.connect2DataCenter=connect2DataCenter;
+exports.connect2MyDataCenter=connect2MyDataCenter;
 function checkDateFormat(created_time){
     var time = new Date(created_time).getTime();
     return isNaN(time)?false:true;
 }   
 function isPast(created_time){
     created_time=new Date(created_time);
+    //計算出該貼文預計要被追蹤的日期
     var track_date = created_time.getDate()+master_setting['track_interval'];
     created_time.setDate(track_date);
     var time = new Date(created_time).getTime();
+    //如果追蹤日期是在今日之前，則代表未來不可能有機會追蹤，故需要放進past pool裡
     return time<new Date().getTime()?true:false;
-}   
+}
+function isExpire(time){
+    var send_time=new Date(time).getTime();
+    var now = new Date().getTime();
+    var expire_time = master_setting['expire_time']*1000;
+
+    if(now-send_time>expire_time){
+        return true;   
+    }
+    else{
+        return false;
+    }
+}
 function deafultDate(created_time){
     return created_time?dateFormat(created_time,'yyyy/mm/dd HH:MM:ss'):dateFormat(new Date(),'yyyy/mm/dd HH:MM:ss');   
 }

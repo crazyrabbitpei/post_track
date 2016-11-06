@@ -1,14 +1,17 @@
 'use strict'
 var request = require('request');
 var fs = require('fs');
+var http = require('http');
 var dateFormat = require('dateformat');
 var HashMap = require('hashmap');
 var querystring = require('querystring');
 var crawler_setting = JSON.parse(fs.readFileSync('./service/crawler_setting.json'));
+/*
 const center_ip = crawler_setting['center_ip'];
 const center_port = crawler_setting['center_port'];
 const center_name = crawler_setting['center_name'];
 const center_version = crawler_setting['center_version'];
+*/
 
 const request_timeout = crawler_setting['request_timeout'];
 const master_timeout_again = crawler_setting['master_timeout_again'];
@@ -94,14 +97,164 @@ function applyCrawler({crawler_port,master_ip,master_port,master_name,master_ver
        }
     });
 }
-function uploadTrackPostData(access_token,{data,datatype},fin){
+function uploadTrackPostData(master_button,{data,datatype},{center_ip,center_port,center_url},fin){
+    if(master_button['data']=='off'){
+        fin('off','Need not connect to data center.');   
+        return;
+    }
+
     if(datatype=='gais'){
         data = transGais(data);
     }
     else if(datatype=='json'){
         data = JSON.stringify(data);
     }
-    console.log('Upload data:http://'+center_ip+':'+center_port+'/'+center_name+'/'+center_version+'/data/'+datatype+'access_token='+access_token);
+    console.log('Upload data:http://'+center_ip+':'+center_port+center_url);
+    var options = {
+        hostname:center_ip,
+        port:center_port,
+        path:center_url,
+        method:'POST',
+        headers:{
+            'Content-Type':'text/html',
+            'Content-Length':Buffer.byteLength(data)
+        }
+    }
+
+    var req = http.request(options,(res)=>{
+        let body='';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+            body+=chunk;
+        });
+        res.on('end', () => {
+            if(res.statusCode==200){
+                var err_msg='';
+                var err_flag=0
+                try{
+                    var content = JSON.parse(body);
+                }
+                catch(e){
+                    err_flag=1;
+                    err_msg=e;
+                }
+                finally{
+                    if(err_flag==1){
+                        fin('err',err_msg);
+                    }
+                    else{
+                        if(content['error']&&content['error']!=''){
+                            fin('false',content['error']);   
+                        }
+                        else{
+                            fs.appendFile('./watch'.content+'\n',(err)=>{
+                                
+                            })
+                            fin('ok',content['result']);   
+                        }
+                    }
+                }
+            }
+            else if(res.statusCode>=500&&res.statusCode<600){
+                setTimeout(function(){
+                    uploadTrackPostData(master_button,{data,datatype},{center_ip,center_port,center_url},fin)
+                },master_timeout_again*1000);
+            }
+            else{
+                writeLog('err','uploadTrackPostData, '+res['statusCode']+', '+body);
+                fin('err','uploadTrackPostData, '+res['statusCode']+', '+body);
+            }
+        });
+    });
+    req.on('error', (err) => {
+        if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
+            setTimeout(function(){
+                uploadTrackPostData(master_button,{data,datatype},{center_ip,center_port,center_url},fin)
+            },master_timeout_again*1000);
+        }
+        else{
+            writeLog('err','uploadTrackPostData, '+err);
+            fin('err','uploadTrackPostData, '+err);
+        }
+    });
+    req.write(data);
+    req.end();
+}
+function my_uploadTrackPostData(master_button,access_token,{data,datatype},{center_ip,center_port,center_name,center_version},fin){
+    if(master_button['my_data']=='off'){
+        fin('off','Need not connect to my data center.');   
+        return;
+    }
+
+    if(datatype=='gais'){
+        data = transGais(data);
+    }
+    else if(datatype=='json'){
+        data = JSON.stringify(data);
+    }
+    console.log('Upload data:http://'+center_ip+':'+center_port+'/'+center_name+'/'+center_version+'/data/'+datatype+'?access_token='+access_token);
+    var options = {
+        hostname:center_ip,
+        port:center_port,
+        path:'/'+center_name+'/'+center_version+'/data/'+datatype+'?access_token='+access_token,
+        method:'POST',
+        headers:{
+            'Content-Type':'text/html',
+            'Content-Length':Buffer.byteLength(data)
+        }
+    }
+
+    var req = http.request(options,(res)=>{
+        let body='';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+            body+=chunk;
+        });
+        res.on('end', () => {
+            if(res.statusCode==200){
+                var err_msg='';
+                var err_flag=0
+                try{
+                    var content = body;
+                }
+                catch(e){
+                    err_flag=1;
+                    err_msg=e;
+                }
+                finally{
+                    if(err_flag==1){
+                        fin('err',err_msg);
+                    }
+                    else{
+                        fin('ok',content);   
+                    }
+                }
+            }
+            else if(res.statusCode>=500&&res.statusCode<600){
+                setTimeout(function(){
+                    my_uploadTrackPostData(master_button,access_token,{data,datatype},{center_ip,center_port,center_name,center_version},fin)
+                },master_timeout_again*1000);
+            }
+            else{
+                writeLog('err','my_uploadTrackPostData, '+res['statusCode']+', '+body['err']);
+                fin('err','my_uploadTrackPostData, '+res['statusCode']+', '+body['err']);
+            }
+        });
+    });
+    req.on('error', (err) => {
+        if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
+            setTimeout(function(){
+                my_uploadTrackPostData(master_button,access_token,{data,datatype},{center_ip,center_port,center_name,center_version},fin)
+            },master_timeout_again*1000);
+        }
+        else{
+            writeLog('err','my_uploadTrackPostData, '+err);
+            fin('err','my_uploadTrackPostData, '+err);
+        }
+    });
+    req.write(data);
+    req.end();
+    /*
     request({
         method:'POST',
         body:data,
@@ -153,6 +306,7 @@ function uploadTrackPostData(access_token,{data,datatype},fin){
             }
        }
     });
+    */
 }
 //function uploadTrackPostId(ip,port,master_name,master_version,token,data,timeout,retryt,fin){
 //data cralwer用
@@ -1216,6 +1370,7 @@ exports.missionReport=missionReport;
 exports.trackPost=trackPost;
 exports.uploadTrackPostId=uploadTrackPostId;
 exports.uploadTrackPostData=uploadTrackPostData;
+exports.my_uploadTrackPostData=my_uploadTrackPostData;
 exports.listTrack=listTrack;
 exports.initContent=initContent;
 exports.fetchNextPage=fetchNextPage;

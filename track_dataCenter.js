@@ -87,14 +87,6 @@ center.post('/data/:datatype(json|gais)',function(req,res){
     req.on('data', function(data){
         temp+=data;
         size+=Buffer.byteLength(data);
-        fs.appendFile(dir,data,function(err){
-            if(err){
-                console.log('err:'+err);
-                writeLog('err','From '+req.ip+', upload fail:'+err);
-                sendResponse(res,'false',200,'Upload fail:'+err);
-            }
-        });
-
     });
     req.on('end', function(data){
         try{
@@ -109,13 +101,21 @@ center.post('/data/:datatype(json|gais)',function(req,res){
         }
         finally{
             if(!err_flag){
-                /*recording ip and datasize*/
-                if(datatype=='json'){
-                    fs.appendFile(dir,'\n','utf8',()=>{});
-                }
-                console.log('Uplaod success!');
-                writeLog('process','From '+req.ip+', upload success:'+size);
-                sendResponse(res,'ok',200,'Upload success:'+size);
+                fs.appendFile(dir,temp,function(err){
+                    if(err){
+                        console.log('err:'+err);
+                        writeLog('err','From '+req.ip+', upload fail:'+err);
+                        sendResponse(res,'false',200,'Upload fail:'+err);
+                    }
+                    else{
+                        if(datatype=='json'){
+                            fs.appendFile(dir,'\n','utf8',()=>{});
+                        }
+                        console.log('Uplaod success!');
+                        writeLog('process','From '+req.ip+', upload success:'+size);
+                        sendResponse(res,'ok',200,'Upload success:'+size);
+                    }
+                });
             }
             else{
                 console.log('Upload fail.');
