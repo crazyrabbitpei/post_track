@@ -29,8 +29,9 @@ var track = new master_tool.Track();
  *  -demo用追蹤post id，之後要以追蹤週期為單位存放post id，並讀入相對pool
  */
 var master_setting = JSON.parse(fs.readFileSync('./service/master_setting.json'));
+const service_store_info = master_setting['service_store_info'];
 var mission = JSON.parse(fs.readFileSync('./service/mission.json'));
-//loadGraphToken();
+loadGraphToken();
 //loadIds();
 
 /*給予demo用的通行証*/
@@ -46,12 +47,36 @@ process.on('SIGTERM',()=>{
 process.on('SIGINT',()=>{
     console.log("[Server stop] ["+new Date()+"]");
     clearInterval(store_service_file);
-    track.storeInfo2File('end');
+    clearInterval(store_graph_file);
+    storeGraphToken2File('graph_tokens',()=>{
+        console.log('Store info done : '+service_store_info['info_type']['graph_tokens']);
+        track.storeInfo2File('end');
+    });
 });
 
 var store_service_file = setInterval(()=>{
     track.storeInfo2File('');
-},10*1000);
+},30*1000);
+
+var store_graph_file = setInterval(()=>{
+    storeGraphToken2File('graph_tokens',()=>{
+        console.log('Store info done : '+service_store_info['info_type']['graph_tokens']);
+    });
+},300*1000);
+
+function storeGraphToken2File(info_type,fin){
+    var writeStream = fs.createWriteStream(service_store_info['dir']+'/'+service_store_info['info_type'][info_type]);
+    for(let [key,value] of graph_tokens.entries()){
+        writeStream.write(key+','+value+'\n');
+    }
+    writeStream.end();
+    writeStream.on('error',(err)=>{
+        console.log(err);
+    });
+    writeStream.on('finish',()=>{
+        fin();
+    });
+}
 
 /*所有的request都必須被檢查其access token*/
 master.use(function(req,res,next){
@@ -204,7 +229,8 @@ master.route('/mission_report')
     var result;
 
     if(track.missionStatus(access_token,mission_status)){
-        result='get token:'+access_token+' get status:'+mission_status;
+        //result='get token:'+access_token+' get status:'+mission_status;
+        result='Success update crawler ['+access_token+'] status!';
         sendResponse(res,'ok',200,result);
     }
     else{

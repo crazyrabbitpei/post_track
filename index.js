@@ -460,7 +460,7 @@ else{
                                         });
                                     }
                                     else{
-                                        console.log('['+flag+'] '+msg);
+                                        console.log('['+flag+'] '+JSON.stringify(msg,null,3));
                                     }
                                 });
                             }

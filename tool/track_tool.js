@@ -640,8 +640,12 @@ function transGais(data){
             }
             /*因為comments, sharedposts有陣列的議題(多個回應、分享)，需要將每個回應、分享轉換成子欄位*/
             else if(keys[i]=='comments'||keys[i]=='shared_posts'){
-                gaisrec+='@'+new_name+':\n';
+                let childs = [];
+                gaisrec+='@'+new_name+':[';
                 for(j=0;j<data[l][keys[i]].length;j++){
+                    childs.push(JSON.stringify(data[l][keys[i]][j]));
+
+                    /*
                     sub_gaisrec='\t'+keys[i]+'_'+j;
                     sub_keys = Object.keys(data[l][keys[i]][j]);
                     for(k=0;k<sub_keys.length;k++){
@@ -658,7 +662,9 @@ function transGais(data){
                         sub_gaisrec+=' '+new_sub_name+':'+data[l][keys[i]][j][sub_keys[k]];
                     }
                     gaisrec+=sub_gaisrec+'\n';
+                    */
                 }
+                gaisrec+=childs+']\n';
             }
             else if(keys[i]=='body'){
                 data[l][keys[i]] = data[l][keys[i]].replace(/\n/g,' ');

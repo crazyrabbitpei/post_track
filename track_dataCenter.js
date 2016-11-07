@@ -44,7 +44,7 @@ center.use(function(req,res,next){
         sendResponse(res,'token_err','','');
         return;
     }
-    console.log('Success:'+access_token);
+    console.log('Pass token:'+access_token);
     next();
 });
 

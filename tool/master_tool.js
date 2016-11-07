@@ -158,6 +158,7 @@ class Track{
     /*TODO:讀取trackPools的方式比較奇怪，要改，無法借由改動info來改變this.trackPools，所以這邊直接改this.trackPools*/
     read2memory(flag,info_type,info,parseFlag,option){
         writeLog('process',`Read ${info_type} to memory :`+service_store_info['info_type'][info_type]);
+        var _self = this;
         if(flag=='trackPools'){
             fs.readFile(service_store_info['dir']+'/'+service_store_info['info_type'][info_type],(err,data)=>{
                 var err_flag=0,err_msg='';
@@ -181,19 +182,6 @@ class Track{
                         else{
                             console.log('Loading success : '+service_store_info['dir']+'/'+service_store_info['info_type'][info_type]);
                             writeLog('process','Loading success : '+service_store_info['dir']+'/'+service_store_info['info_type'][info_type]);
-                            /*
-                            fs.appendFile('./pool_test',JSON.stringify(this.trackPools,null,2)+'\n',(err)=>{
-                                if(err){
-                                    console.log(err);
-                                }
-                                else{
-                                    console.log('Write post pool! Length:'+Object.keys(this.trackPools).length);
-                                    //this.listPools();
-                                }
-                            });
-                            */
-
-                            //console.log(JSON.stringify(info,null,2));
                         }
                     }
 
@@ -210,7 +198,6 @@ class Track{
             });
             lr.on('line', function (line) {
                 line_cnt++;
-
                 if(!parseFlag){
                     var parts = line.split(',');
                     console.log(parts[0]+','+parts[1]);
@@ -233,7 +220,20 @@ class Track{
                             process.exit(0);
                         }
                         else{
-                            info.set(parts[0],obj);
+                            let schedules = obj;
+                            if(info_type=='schedulesInfo'){
+                                if(!_self.newSchedule(parts[0],{description:schedules['description'],track_time:schedules['track_time'],track_pool_name:schedules['track_pool_name'],schedule_status:schedules['status']})){
+                                    return false;
+                                }
+                                else{
+                                    console.log('Success new schedule:['+parts[0]+']');
+                                    console.log('Content:'+JSON.stringify(info.get(parts[0]),null,2));
+                                }
+                            }
+                            else{
+                                info.set(parts[0],obj);
+                            }
+
                         }
                     }
                 }
@@ -658,9 +658,11 @@ class Track{
     /*先創建行程資訊，實際的cronjob先不用創建*/
     newSchedule(schedule_name,{description='Schedule_'+schedule_name,track_time=master_setting.default_track_time,track_pool_name=master_setting.default_track_pool_name,schedule_status='off',track_num=master_setting.ids_num}={}){
         if(!schedule_name){
+            console.log('Need schedule_name!');
             return false;
         }   
         if(this.schedulesInfo.has(schedule_name)){
+            console.log('Already has schedule_name:'+schedule_name);
             return false;
         }
 
