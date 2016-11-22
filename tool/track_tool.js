@@ -102,12 +102,20 @@ function uploadTrackPostData(master_button,{data,datatype},{center_ip,center_por
         fin('off','Need not connect to data center.');   
         return;
     }
-
+    let ori;
     if(datatype=='gais'){
-        data = transGais(data);
+        ori = transGais(data);
     }
     else if(datatype=='json'){
-        data = JSON.stringify(data);
+        ori = JSON.stringify(data);
+    }
+    if(!ori){
+        fs.appendFile('./err.check','[uploadTrackPostData]'+JSON.stringify(data,null,2)+'\n',(err)=>{
+            console.log('Can\'t transfer data to gais rec!');
+            process.exit(0);
+        })
+        fin('false','Can\'t transfer data to gais rec!');   
+        return;
     }
     console.log('Upload data:http://'+center_ip+':'+center_port+center_url);
     fs.appendFile('./link','Upload data:http://'+center_ip+':'+center_port+center_url+'\n',(err)=>{});
@@ -118,7 +126,7 @@ function uploadTrackPostData(master_button,{data,datatype},{center_ip,center_por
         method:'POST',
         headers:{
             'Content-Type':'text/html',
-            'Content-Length':Buffer.byteLength(data)
+            'Content-Length':Buffer.byteLength(ori)
         }
     }
 
@@ -181,7 +189,7 @@ function uploadTrackPostData(master_button,{data,datatype},{center_ip,center_por
             fin('err','uploadTrackPostData, '+err);
         }
     });
-    req.write(data);
+    req.write(ori);
     req.end();
 }
 function my_uploadTrackPostData(master_button,access_token,{data,datatype},{center_ip,center_port,center_name,center_version},fin){
@@ -189,12 +197,20 @@ function my_uploadTrackPostData(master_button,access_token,{data,datatype},{cent
         fin('off','Need not connect to my data center.');   
         return;
     }
-
+    let ori;
     if(datatype=='gais'){
-        data = transGais(data);
+        ori = transGais(data);
     }
     else if(datatype=='json'){
-        data = JSON.stringify(data);
+        ori = JSON.stringify(data);
+    }
+    if(!ori){
+        fs.appendFile('./err.check','[uploadTrackPostData]'+JSON.stringify(data,null,2)+'\n',(err)=>{
+            console.log('Can\'t transfer data to gais rec!');
+            process.exit(0);
+        })
+        fin('false','Can\'t transfer data to gais rec!');   
+        return;
     }
     console.log('Upload data:http://'+center_ip+':'+center_port+'/'+center_name+'/'+center_version+'/data/'+datatype+'?access_token='+access_token);
     var options = {
@@ -204,7 +220,7 @@ function my_uploadTrackPostData(master_button,access_token,{data,datatype},{cent
         method:'POST',
         headers:{
             'Content-Type':'text/html',
-            'Content-Length':Buffer.byteLength(data)
+            'Content-Length':Buffer.byteLength(ori)
         }
     }
 
@@ -256,7 +272,7 @@ function my_uploadTrackPostData(master_button,access_token,{data,datatype},{cent
             fin('err','my_uploadTrackPostData, '+err);
         }
     });
-    req.write(data);
+    req.write(ori);
     req.end();
     /*
     request({
@@ -509,7 +525,8 @@ function trackPost(graph_option,mission,post_id,fin){
         cnt_retry=0;
         return;
     }
-    console.log('Mission:\n'+JSON.stringify(mission,null,2));
+    console.log('Mission:');
+    //console.dir(mission,{colors:true});
     var site = mission['info']['site']+mission['info']['graph_version']+'/'+post_id;
     if(graph_option=='field1'){
         site+='?fields='+mission['info']['field1']+'&access_token='+mission['token']['graph_token']+'&limit='+mission['info']['limit'];
@@ -601,10 +618,22 @@ function transFieldName(option,field,type){
     }
 }
 /*欄位名稱在json格式時就已經轉換指定格式，故這邊只要按照原本的名稱轉成gais rec即可*/
-function transGais(data){
+function transGais(rec){
     var i,j,k;
     var gaisrec='';
-    data = data['data'];
+    let data = rec['data'];
+    if(!data){
+        fs.appendFile('./err.check','[transGais] '+JSON.stringify(rec,null,2)+'\n',(err)=>{
+            console.log('Can\'t transfer data to gais rec!');
+            process.exit(0);
+        });
+        return;
+    }
+    /*
+    fs.appendFile('./normal.check','[transGais] '+JSON.stringify(rec,null,2)+'\n',(err)=>{
+    });
+    console.log('[transGais]  data.length:'+data.length);
+    */
     for(let l=0;l<data.length;l++){
         gaisrec+='@Gais_REC\n';
         var current_post_id;
@@ -639,7 +668,7 @@ function transGais(data){
                 gaisrec+=sub_gaisrec+'\n';
             }
             /*因為comments, sharedposts有陣列的議題(多個回應、分享)，需要將每個回應、分享轉換成子欄位*/
-            else if(keys[i]=='comments'||keys[i]=='shared_posts'){
+            else if(keys[i]=='comments'||keys[i]=='sharedposts'||keys[i]=='target'){
                 let childs = [];
                 gaisrec+='@'+new_name+':[';
                 for(j=0;j<data[l][keys[i]].length;j++){
@@ -683,8 +712,6 @@ function transGais(data){
             }
         }
     }
-
-
     return gaisrec;
 }
 /*
@@ -744,12 +771,22 @@ function initContent([...fields],content){
     var type;
     var temp;
     var data;
+    var page_name=content['from']['name'];
+    var page_id=content['from']['id'];
+    this['page_name'] = page_name;
+    this['page_id'] = page_id;
 
     this.reactions = {};
     this.comments = [];
     this.sharedposts = [];
     for(i=0;i<keys.length;i++){
-        //console.log('['+i+'] '+keys[i]);   
+        //console.log('['+i+'] '+keys[i]);  
+        if(keys[i]=='target'){
+            page_name=content[keys[i]]['name'];
+            page_id=content[keys[i]]['id'];
+            this['page_name'] = page_name;
+            this['page_id'] = page_id;
+        }
         if(keys[i]!='comments'&&keys[i]!='sharedposts'&&keys[i]!='reactions'&&keys[i]!='attachment'){
             /*該欄位有其他子欄位，ex:from:{id:'',name:''}，在fields裡可以用fields欄位中是否有{}來判定該欄位是否有子欄位，ex: from{id,name}*/
             if(fields[0].indexOf(keys[i]+'{')!=-1){

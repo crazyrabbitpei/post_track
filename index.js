@@ -223,20 +223,23 @@ function nextTrack(){
             data['fail']=fail_ids;
             track_tool.missionReport({data,master_ip,master_port,master_name,master_version,access_token:mission['token']['access_token'],mission_status},(flag,msg)=>{
                 if(flag=='ok'&&msg&&msg['data']&&msg['status']=='ok'){
-                    console.log('missionReport success:'+JSON.stringify(msg,null,2));
+                    console.log('missionReport success:');
+                    //console.dir(msg,{colors:true});
                     /*Reset基本記錄*/
                     reset();
                     success_ids=[];
                     fail_ids=[];
                 }
                 else{
-                    console.log('['+flag+'] '+JSON.stringify(msg,null,3));
+                    console.log('['+flag+']');
+                    //console.dir(msg,{colors:true});
                 }
 
             });
         }
         else{
-            console.log('Other mission['+_version+']:\n'+JSON.stringify(mission,null,3));
+            console.log('Other mission['+_version+']:');
+            //console.dir(mission,{colors:true});
         }
     }
 
@@ -316,16 +319,26 @@ function writeTrackLog(){
 }
 function flush(){
     
-    if(final_result['data'].length==0){
+    if(final_result['data'].length==0||typeof final_result==='undefined'){
+        console.log('[flush] final_result length:'+final_result['data'].length+' final_result:'+final_result);
+        return;
+    }
+    if(final_result['data'][0]=='@'){
+        fs.appendFile('./err.check','[flush] '+data+'\n',(err)=>{
+            process.exit(0);
+        })
         return;
     }
 
+    let temp = Object.assign({}, final_result);
+    final_result={};//存放所有結果
+    final_result['data']=[];
     if(write2Local){
         console.log('Flush!');
-        track_tool.writeRec(mission['info']['datatype'],final_result);
+        track_tool.writeRec(mission['info']['datatype'],temp);
     }
 
-    track_tool.my_uploadTrackPostData(mission['info']['master'],mission['token']['access_token'],{data:final_result,datatype:mission['info']['datatype']},{center_ip:mission['info']['my_center_ip'],center_port:mission['info']['my_center_port'],center_name:mission['info']['my_center_name'],center_version:mission['info']['my_center_version']},(flag,msg)=>{
+    track_tool.my_uploadTrackPostData(mission['info']['master'],mission['token']['access_token'],{data:temp,datatype:mission['info']['datatype']},{center_ip:mission['info']['my_center_ip'],center_port:mission['info']['my_center_port'],center_name:mission['info']['my_center_name'],center_version:mission['info']['my_center_version']},(flag,msg)=>{
         if(flag=='ok'){
             console.log(msg);
         }
@@ -338,19 +351,18 @@ function flush(){
         
 
     });
-    track_tool.uploadTrackPostData(mission['info']['master'],{data:final_result,datatype:mission['info']['datatype']},{center_ip:mission['info']['center_ip'],center_port:mission['info']['center_port'],center_url:mission['info']['center_url']},(flag,msg)=>{
+    track_tool.uploadTrackPostData(mission['info']['master'],{data:temp,datatype:mission['info']['datatype']},{center_ip:mission['info']['center_ip'],center_port:mission['info']['center_port'],center_url:mission['info']['center_url']},(flag,msg)=>{
         if(flag=='ok'){
-            console.log(msg);
+            console.log('[uploadTrackPostData] '+msg);
         }
         else if(flag=='err'){
-            console.log(msg);
+            console.log('[uploadTrackPostData] '+msg);
         }
         else if(flag=='off'){
-            console.log(msg);
+            console.log('[uploadTrackPostData] '+msg);
         }
     });
-    final_result={};//存放所有結果
-    final_result['data']=[];
+
     rec_num=0;
     rec_size=0;
 }
@@ -409,7 +421,8 @@ else{
                         mission['token']['access_token']=msg['data']['access_token'];
                     }
                     else{
-                        console.log('['+flag+'] '+JSON.stringify(msg,null,2));
+                        console.log('['+flag+']');
+                        //console.dir(msg,{colors:true});
                         process.exit();
                     }
 
@@ -453,14 +466,16 @@ else{
                                         app.use('/'+crawler_name+'/'+crawler_version,crawler);
                                         mission['token']['graph_token']=msg['data']['graph_token'];
                                         mission['token']['access_token']=msg['data']['access_token'];
-                                        console.log('Apply success:'+JSON.stringify(msg,null,3));
+                                        console.log('Apply success:');
+                                        //console.dir(msg,{colors:true});
                                         
                                         track_tool.listTrack({master_ip,master_port,master_name,master_version,access_token:mission['token']['access_token']},(flag,msg)=>{
                                             //console.log('listTrack:\n'+JSON.stringify(msg,null,3));
                                         });
                                     }
                                     else{
-                                        console.log('['+flag+'] '+JSON.stringify(msg,null,3));
+                                        console.log('['+flag+']');
+                                        //console.dir(msg,{colors:true});
                                     }
                                 });
                             }
@@ -563,7 +578,8 @@ function updateMission(assign_mission){
     mission['info']=assign_mission;
     track_tool.updateFieldMap(assign_mission['fields_mapping']);
 
-    console.log('[harmony] mission'+JSON.stringify(mission));
+    console.log('[harmony] mission:');
+    //console.dir(mission,{colors:true});
     if(UPLOAD_INTERVAL&&UPLOAD_INTERVAL=='time'&&mission['info']['UPLOAD_INTERVAL']['type']!='time'){
         upload_process=false;
         upload_schedule.stop();

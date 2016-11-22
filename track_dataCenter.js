@@ -64,7 +64,8 @@ center.post('/apply/:access_token',function(req,res){
     track.insertCrawler(access_token,{ip:ip,port:port});
 
     sendResponse(res,'ok',200,result);
-    console.log('Data center:\n'+JSON.stringify(track.listCrawlers(),null,3));
+    console.log('Data center:');
+    console.dir(track.listCrawlers(),{colors:true});
 
 });
 

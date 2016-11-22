@@ -69,13 +69,14 @@ class Track{
         
 
         for(let i=0,schedules=master_setting.schedules;i<schedules.length;i++){
-            console.log(JSON.stringify({description:schedules[i]['description'],track_time:schedules[i]['track_time'],track_pool_name:schedules[i]['track_pool_name'],schedule_status:schedules[i]['status']},null,3));
+            //console.dir({description:schedules[i]['description'],track_time:schedules[i]['track_time'],track_pool_name:schedules[i]['track_pool_name'],schedule_status:schedules[i]['status']},{colors:true})
             if(!this.newSchedule(schedules[i]['name'],{description:schedules[i]['description'],track_time:schedules[i]['track_time'],track_pool_name:schedules[i]['track_pool_name'],schedule_status:schedules[i]['status']})){
                 return false;
             }
             else{
                 console.log('Success new schedule:['+schedules[i]['name']+']');
-                console.log('Content:'+JSON.stringify(this.schedulesInfo.get(schedules[i]['name']),null,2));
+                //console.log('Content:'+JSON.stringify(this.schedulesInfo.get(schedules[i]['name']),null,2));
+                //console.dir(this.schedulesInfo.get(schedules[i]['name']),{colors:true});
             }
         }
         return true;
@@ -227,7 +228,8 @@ class Track{
                                 }
                                 else{
                                     console.log('Success new schedule:['+parts[0]+']');
-                                    console.log('Content:'+JSON.stringify(info.get(parts[0]),null,2));
+                                    //console.log('Content:'+JSON.stringify(info.get(parts[0]),null,2));
+                                    //console.dir(info.get(parts[0]),{colors:true});
                                 }
                             }
                             else{
@@ -728,7 +730,10 @@ class Track{
                     /*TODO:testing*/
                     _self.recordPostSendTime(ids);
 
-                    console.log('Crawler:'+JSON.stringify(crawler,null,3)+'\nids:'+JSON.stringify(ids,null,3));
+                    console.log('Crawler:');
+                    //console.dir(crawler,{colors:true});
+                    console.log('ids:');
+                    //console.dir(ids,{colors:true});
                     /*TODO:crawler_name,crawler_version,control_token之後也是由client給予，資訊會一起包在info裡，目前先用server端預設*/
                     _self.sendMission(crawler['token'],{ip:crawler['info']['ip'],port:crawler['info']['port'],crawler_name:master_setting.crawler_name,crawler_version:master_setting.crawler_version,control_token:master_setting.control_token,track_ids:ids});
                 }

@@ -514,7 +514,8 @@ function loadIds(){
         }
     });
     lr.on('end', function () {
-        console.log('Init Master track_ids:\n'+JSON.stringify(track.listPools(),null,3));
+        console.log('Init Master track_ids:');
+        //console.dir(track.listPools(),{colors:true});
         console.log('Master [loadIds] Loading done!');
     });
 }
