@@ -1,13 +1,16 @@
-'use strict'
+    'use strict'
 /*
  * TODO:
  *  1.如果沒有同時要求reactoins, comments...有多個下一頁的欄位，要讓程式還是能執行
  *  2.將資料回傳到data center
  * */
+
+
 var track_tool = require('./tool/track_tool.js');
-var master_tool = require('./tool/master_tool.js');
 var crawler = require('./crawler.js');
+
 var master = require('./master.js').master;
+var master_tool = require('./tool/master_tool.js');
 
 var CronJob = require('cron').CronJob;
 var EventEmitter = require('events');
@@ -15,6 +18,12 @@ var querystring = require('querystring');
 var fs = require('graceful-fs');
 var express = require('express');
 var bodyParser = require('body-parser');
+
+const Console = require('console').Console;
+const output = fs.createWriteStream('./logs/execute.log');
+const errorOutput = fs.createWriteStream('./logs/execute_err.log');
+const logger = new Console(output, errorOutput);
+
 var app = express();
 var http = require('http');
 var server = http.createServer(app);
@@ -25,7 +34,7 @@ var crawler_ip = crawler_setting['crawler_ip'];
 var crawler_port = crawler_setting['crawler_port'];
 var crawler_name = crawler_setting['crawler_name'];
 var crawler_version = crawler_setting['crawler_version'];
-
+var control_token = crawler_setting['control_token']
 
 var write2Local = crawler_setting['write2Local'];
 
@@ -56,6 +65,11 @@ var force_upload_flag=false;
 var all_fetch=3;//有兩個資訊有下一頁問題：shareposts, reactions, comments，要等到這兩個都抓完後程式才算完成
 var graph_request=0;//計算總共發了多少Graph api;
 var processing=0;//如果目前有post還在進行追蹤就是1，否則為0
+
+var processing_flag=false;//會先完成手邊任務(現有的post追蹤完畢、資料都上傳完，才能結束程式) 可停止:true
+var uploading_flag=false;//當正在上傳到data center時，是無法強行中止程式
+var uploading_flag_my=false;//當正在上傳到my data center時，是無法強行中止程式
+
 var single_result;//存放單一筆結果
 var final_result={};//存放所有結果
 final_result['data']=[];
@@ -63,14 +77,51 @@ final_result['data']=[];
 class MyEmitter extends EventEmitter {};
 const myEmitter = new MyEmitter();
 
+process.on('SIGINT',()=>{
+    waitingStop('[SIGINT] Press Ctrl+C');
+});
+function waitingStop(msg){
+    let stop = setInterval(()=>{
+        if(!uploading_flag&&!uploading_flag_my&&!processing_flag){
+            /*
+            if(success_ids.length!=0||fail_ids.length!=0){//尚未回報目前狀態給track master的話，必須將現有資訊回傳才能結束程式
+                missionReport('offline');
+                let wait_for_report = setInterval(()=>{
+                    if(!uploading_flag&&!uploading_flag_my&&!processing_flag){
+                        clearInterval(wait_for_report)
+                        console.log("[Crawler stop] ["+new Date()+"] Reason:"+msg);
+                        process.exit(0);
+                    }
+                },100);
+            }
+            else{
+                console.log("[Crawler stop] ["+new Date()+"] Reason:"+msg);
+                process.exit(0);
+            }
+            */
+            missionReport('offline');
+            let wait_for_report = setInterval(()=>{
+                if(!uploading_flag&&!uploading_flag_my&&!processing_flag){
+                    clearInterval(wait_for_report)
+                    console.log("[Crawler stop] ["+new Date()+"] Reason:"+msg);
+                    process.exit(0);
+                }
+            },100);
+            clearInterval(stop);
+        }
+    },500);
+}
+
 /*控制何時將搜集資料upload到master*/
 
 myEmitter.on('nextcomment', (link) => {
     //console.log('nextcomment=>'+link);
     graph_request++;
+    logger.time('fetchNextPage-nextcomment');
     track_tool.fetchNextPage(mission,link,function(flag,msg){
+        logger.timeEnd('fetchNextPage-nextcomment');
         if(flag=='err'){
-            console.log('[fetchNextPage err] '+msg);
+            console.log('[fetchNextPage-nextcomment] err:'+JSON.stringify(msg));
             myEmitter.emit('one_post_done',{track_status:'nexterr',data:link});
         }
         else{
@@ -94,9 +145,11 @@ myEmitter.on('nextcomment', (link) => {
 });
 myEmitter.on('nextsharedpost', (link) => {
     graph_request++;
+    logger.time('fetchNextPage-nextsharedpost');
     track_tool.fetchNextPage(mission,link,function(flag,msg){
+        logger.timeEnd('fetchNextPage-nextsharedpost');
         if(flag=='err'){
-            console.log('[fetchNextPage err] '+msg);
+            console.log('[fetchNextPage-nextsharedpost] err:'+JSON.stringify(msg));
             myEmitter.emit('one_post_done',{track_status:'nexterr',data:link});
         }
         else{
@@ -120,9 +173,11 @@ myEmitter.on('nextsharedpost', (link) => {
 });
 myEmitter.on('nextreaction', (link) => {
     graph_request++;
+    logger.time('fetchNextPage-nextreaction');
     track_tool.fetchNextPage(mission,link,function(flag,msg){
+        logger.timeEnd('fetchNextPage-nextreaction');
         if(flag=='err'){
-            console.log('[fetchNextPage err] '+msg);
+            console.log('[fetchNextPage-nextreaction] err:'+JSON.stringify(msg));
             myEmitter.emit('one_post_done',{track_status:'nexterr',data:link});
         }
         else{
@@ -194,14 +249,16 @@ function reset(){
 function nextTrack(){
     var temp = trackids.shift();
     if(temp){
+        processing_flag=false;
         /*Reset基本記錄*/
-        reset();
+        reset();//成功和失敗track id不會在reset裡清空
         current_post_id = temp;
         start(current_post_id);
     }
     else{
         if(_version=='test'){
             console.log('All post id have been tracked.');
+            processing_flag=false;
         }
         else if(_version=='test1'||_version=='test2'||_version=='test3'){
             console.log('All post id have been tracked, waiting for next mission!');
@@ -218,27 +275,10 @@ function nextTrack(){
             }
             /*向track master通知任務已完成*/
             var mission_status='done';
-            var data={};
-            data['success']=success_ids;
-            data['fail']=fail_ids;
-            track_tool.missionReport({data,master_ip,master_port,master_name,master_version,access_token:mission['token']['access_token'],mission_status},(flag,msg)=>{
-                if(flag=='ok'&&msg&&msg['data']&&msg['status']=='ok'){
-                    console.log('missionReport success:');
-                    //console.dir(msg,{colors:true});
-                    /*Reset基本記錄*/
-                    reset();
-                    success_ids=[];
-                    fail_ids=[];
-                }
-                else{
-                    console.log('['+flag+']');
-                    //console.dir(msg,{colors:true});
-                }
-
-            });
+            missionReport(mission_status);
         }
         else{
-            console.log('Other mission['+_version+']:');
+            console.log('Can\'t handle other mission version ['+_version+']');
             //console.dir(mission,{colors:true});
         }
     }
@@ -246,17 +286,47 @@ function nextTrack(){
 
 
 }
+function missionReport(mission_status){
+    processing_flag=true;
+    var data={};
+    data['success']=success_ids;
+    data['fail']=fail_ids;
+    logger.time('missionReport');
+    track_tool.missionReport({crawler_name,data,master_ip,master_port,master_name,master_version,access_token:mission['token']['access_token'],mission_status},(flag,msg)=>{
+        logger.timeEnd('missionReport');
+        processing_flag=false;//回報完後就可終止程式
+        if(flag=='ok'&&msg&&msg['data']&&msg['status']=='ok'){
+            console.log('[missionReport] :'+JSON.stringify(msg,null,2));
+            //console.dir(msg,{colors:true});
+            /*Reset基本記錄*/
+            reset();
+            /*因為要重新拿取下一批track id，所以可以把已回報的成功 失敗清單清空*/
+            success_ids=[];
+            fail_ids=[];
+        }
+        else{
+            console.log('[missionReport] err:'+JSON.stringify(msg));
+            //console.dir(msg,{colors:true});
+        }
 
+    });
+}
 function resultBucket(){
+    if(single_result==null){
+        console.log('[resultBucket] single_result is null');
+        waitingStop('[resultBucket] single_result is null');
+        return;
+    }
+    //console.log(JSON.stringify(single_result));
     rec_num++;
     rec_size+=Buffer.byteLength(JSON.stringify(single_result));
     
-    fs.appendFile('./check_one_post_done','id:'+current_post_id+' total size:'+rec_size+' single size:'+Buffer.byteLength(single_result)+'\n',()=>{});
+    fs.appendFile('./check_one_post_done','id:'+current_post_id+' total size:'+rec_size+' single size:'+Buffer.byteLength(JSON.stringify(single_result))+'\n',()=>{});
     /*將當前資料合併到final_result*/
     final_result['data'].push(single_result);
     //final_result[current_post_id]=single_result;
     
-    track_tool.writeLog('process','Data bucket info, current fecth id:'+current_post_id+' total size:'+rec_size+' toal num:'+rec_num+' single size:'+Buffer.byteLength(single_result));
+    track_tool.writeLog('process','Data bucket info, current fecth id:'+current_post_id+' total size:'+rec_size+' toal num:'+rec_num+' single size:'+Buffer.byteLength(JSON.stringify(single_result)));
     /*將資料存到data server*/
     if(UPLOAD_INTERVAL=='real_time'){
         track_tool.writeLog('process','Upload by ['+UPLOAD_INTERVAL+']! total size:'+rec_size+' toal num:'+rec_num);
@@ -289,7 +359,10 @@ function resultBucket(){
 function cntTrackLog(){
     var i,cnt=0;
     var err_flag=0;
+
+    logger.timeEnd('track_post');
     console.log('==ok==ok==['+current_post_id+']==ok==ok==')
+    logger.log('==ok==ok==['+current_post_id+']==ok==ok==');
     if(single_result){
         var reac_type = Object.keys(single_result.reactions);
         for(i=0;i<reac_type.length;i++){
@@ -325,7 +398,7 @@ function flush(){
     }
     if(final_result['data'][0]=='@'){
         fs.appendFile('./err.check','[flush] '+data+'\n',(err)=>{
-            process.exit(0);
+            waitingStop('[flush] final_result[\'data\'] format error');
         })
         return;
     }
@@ -334,24 +407,31 @@ function flush(){
     final_result={};//存放所有結果
     final_result['data']=[];
     if(write2Local){
-        console.log('Flush!');
+        console.log('Flush data to local!');
         track_tool.writeRec(mission['info']['datatype'],temp);
     }
-
+    uploading_flag_my=true;
+    logger.time('my_uploadTrackPostData');
     track_tool.my_uploadTrackPostData(mission['info']['master'],mission['token']['access_token'],{data:temp,datatype:mission['info']['datatype']},{center_ip:mission['info']['my_center_ip'],center_port:mission['info']['my_center_port'],center_name:mission['info']['my_center_name'],center_version:mission['info']['my_center_version']},(flag,msg)=>{
+        logger.timeEnd('my_uploadTrackPostData');
+        uploading_flag_my=false;
         if(flag=='ok'){
-            console.log(msg);
+            console.log('[my_uploadTrackPostData] '+msg);
         }
         else if(flag=='err'){
-            console.log(msg);
+            console.log('[my_uploadTrackPostData] '+msg);
         }
         else if(flag=='off'){
-            console.log(msg);
+            console.log('[my_uploadTrackPostData] '+msg);
         }
         
 
     });
+    uploading_flag=true;
+    logger.time('uploadTrackPostData');
     track_tool.uploadTrackPostData(mission['info']['master'],{data:temp,datatype:mission['info']['datatype']},{center_ip:mission['info']['center_ip'],center_port:mission['info']['center_port'],center_url:mission['info']['center_url']},(flag,msg)=>{
+        uploading_flag=false;
+        logger.timeEnd('uploadTrackPostData');
         if(flag=='ok'){
             console.log('[uploadTrackPostData] '+msg);
         }
@@ -414,16 +494,18 @@ else{
                 *  2. 當程式停止時，主動向master發送停止訊息
                 *  3. 將從master那得來的設定檔和任務儲存到temp_pool裡，若有重新認證的情況時再將新的覆蓋回去
                 */
-                track_tool.applyCrawler({crawler_port,master_ip,master_port,master_name,master_version,invite_token},(flag,msg)=>{
+                logger.time('applyCrawler');
+                track_tool.applyCrawler({control_token,crawler_name,crawler_version,crawler_port,master_ip,master_port,master_name,master_version,invite_token},(flag,msg)=>{
+                    logger.timeEnd('applyCrawler');
                     if(flag=='ok'&&msg&&msg['data']&&msg['status']=='ok'){
+                        console.log('[applyCrawler] success:'+msg['data']['check']);
                         app.use('/'+crawler_name+'/'+crawler_version,crawler);
                         mission['token']['graph_token']=msg['data']['graph_token'];
                         mission['token']['access_token']=msg['data']['access_token'];
                     }
                     else{
-                        console.log('['+flag+']');
-                        //console.dir(msg,{colors:true});
-                        process.exit();
+                        console.log('[applyCrawler] err:'+JSON.stringify(msg));
+                        waitingStop('[applyCrawler] err:'+JSON.stringify(msg));
                     }
 
                 });
@@ -431,22 +513,22 @@ else{
             else if(_version=='test2'){
                 mission['token']['access_token']=crawler_setting['mission']['access_token'];
                 master_tool.connect2MyDataCenter((flag,msg)=>{
-                    console.log('connect2MyDataCenter, '+msg);
+                    console.log('[connect2MyDataCenter] '+msg);
                     if(flag||flag=='off'){
                         master_tool.connect2DataCenter((flag,msg)=>{
-                            console.log('connect2DataCenter, '+msg);
+                            console.log('[connect2DataCenter] '+msg);
                             if(flag||flag=='off'){
                                 app.use('/'+master_name+'/'+master_version,master);
                             }
                             else{
                                 console.log('Can\'t connect to Data Center!');
-                                process.exit(0);
+                                waitingStop('Can\'t connect to Data Center!');
                             }
                         });
                     }
                     else{
                         console.log('Can\'t connect to My Data Center!');
-                        process.exit(0);
+                        waitingStop('Can\'t connect to My Data Center!');
                     }
                 });
             }
@@ -454,40 +536,43 @@ else{
             else if(_version=='test3'){
                 mission['token']['access_token']=crawler_setting['mission']['access_token'];
                 master_tool.connect2MyDataCenter((flag,msg)=>{
-                    console.log('connect2MyDataCenter, '+msg);
+                    console.log('[connect2MyDataCenter] '+msg);
                     if(flag||flag=='off'){
                         master_tool.connect2DataCenter((flag,msg)=>{
-                            console.log('connect2DataCenter, '+msg);
+                            console.log('[connect2DataCenter] '+msg);
                             if(flag||flag=='off'){
 
                                 app.use('/'+master_name+'/'+master_version,master);
-                                track_tool.applyCrawler({crawler_port,master_ip,master_port,master_name,master_version,invite_token},(flag,msg)=>{
+                                logger.time('applyCrawler');
+                                track_tool.applyCrawler({control_token,crawler_name,crawler_version,crawler_port,master_ip,master_port,master_name,master_version,invite_token},(flag,msg)=>{
+                                    logger.timeEnd('applyCrawler');
                                     if(flag=='ok'&&msg&&msg['data']&&msg['status']=='ok'){
                                         app.use('/'+crawler_name+'/'+crawler_version,crawler);
                                         mission['token']['graph_token']=msg['data']['graph_token'];
                                         mission['token']['access_token']=msg['data']['access_token'];
-                                        console.log('Apply success:');
+                                        console.log('[applyCrawler] success');
                                         //console.dir(msg,{colors:true});
-                                        
+                                        logger.time('listTrack');
                                         track_tool.listTrack({master_ip,master_port,master_name,master_version,access_token:mission['token']['access_token']},(flag,msg)=>{
+                                            logger.timeEnd('listTrack');
                                             //console.log('listTrack:\n'+JSON.stringify(msg,null,3));
                                         });
                                     }
                                     else{
-                                        console.log('['+flag+']');
+                                        console.log('[applyCrawler] err:'+JSON.stringify(msg));
                                         //console.dir(msg,{colors:true});
                                     }
                                 });
                             }
                             else{
                                 console.log('Can\'t connect to Data Center!');
-                                process.exit(0);
+                                waitingStop('Can\'t connect to Data Center!');
                             }
                         });
                     }
                     else{
                         console.log('Can\'t connect to My Data Center!');
-                        process.exit(0);
+                        waitingStop('Can\'t connect to My Data Center!');
                     }
                 });
 
@@ -502,19 +587,28 @@ function start(track_id){
         return;
     }
     start_track = new Date();
+
     processing=1;//開關打開，在完成當前任務前都不會接受任何新任務，亦即，同時只會追蹤一個貼文
-    console.log('=>==>==>=['+track_id+']=>==>==>=')
+    processing_flag=true;//資料開始抓，在搜集完成前都無法停止程式
+
+    logger.time('track_post');
+    logger.log('=>==>==>=['+track_id+']=>==>==>')
+    console.log('=>==>==>=['+track_id+']=>==>==>');
     current_post_id = track_id;
     graph_request++;
     /*先抓貼文的基本資訊，ex:有幾個人按讚、有多少人分項...*/
+    logger.time('trackPost-post-basic');
     track_tool.trackPost('field1',mission,track_id,(flag,msg)=>{
+        logger.timeEnd('trackPost-post-basic');
         if(flag=='err'){
-            console.log('[trackPost err] '+msg);
+            logger.log('[trackPost err] '+msg);
             myEmitter.emit('one_post_done',{track_status:'err',data:''});
         }
         else{
+            logger.time('trackPost-post-comments');
             /*接著抓回文的資訊，ex:貼文內容、有多少喜歡這篇回文...*/
             track_tool.trackPost('field2',mission,track_id,(flag,comments)=>{
+                logger.timeEnd('trackPost-post-comments');
                 if(flag=='err'){
                     console.log('[trackPost err] '+msg);
                     myEmitter.emit('one_post_done',{track_status:'err',data:''});
@@ -570,17 +664,19 @@ function start(track_id){
 function addTrackId(ids){
     force_upload_flag=0;//有新的任務，所以如果在上一個任務中 資料水桶裡有尚未被上傳的資料 在master指定上傳時間到時 也不會強制上傳，而是會等到條件滿足才會上傳
     trackids.push(ids);
+    /*
     console.log('[harmony] new ids:'+ids);
     console.log('Total post id:'+trackids);
+    */
 }
 
 function updateMission(assign_mission){
     mission['info']=assign_mission;
-    track_tool.updateFieldMap(assign_mission['fields_mapping']);
+    track_tool.updateFieldMap(assign_mission['fields_mapping']);//欄位名稱對照表
 
-    console.log('[harmony] mission:');
+    //console.log('[harmony] mission:');
     //console.dir(mission,{colors:true});
-    if(UPLOAD_INTERVAL&&UPLOAD_INTERVAL=='time'&&mission['info']['UPLOAD_INTERVAL']['type']!='time'){
+    if(UPLOAD_INTERVAL&&UPLOAD_INTERVAL=='time'&&mission['info']['UPLOAD_INTERVAL']['type']!='time'){//先前上傳條件是一照'時間'，若新的設定有改，則先停掉舊有的上傳行程
         upload_process=false;
         upload_schedule.stop();
     }
@@ -592,9 +688,9 @@ function updateMission(assign_mission){
     if(UPLOAD_INTERVAL=='rec_size'){
         REC_SIZE=mission['info']['UPLOAD_INTERVAL']['option'];
     }
-    if(UPLOAD_INTERVAL=='time'){
-        if(UPLOAD_TIME!=mission['info']['UPLOAD_INTERVAL']['option']){
-            UPLOAD_TIME=mission['info']['UPLOAD_INTERVAL']['option'];
+    if(UPLOAD_INTERVAL=='time'){//如果想依照時間上傳
+        if(UPLOAD_TIME!=mission['info']['UPLOAD_INTERVAL']['option']){//檢查與原本的上傳時間是否一樣
+            UPLOAD_TIME=mission['info']['UPLOAD_INTERVAL']['option'];//不一樣的話則更新，並重新設定上傳行程
             /*每隔一段時間就會將upload_process flag拉起，所以當一個post追蹤完時，就會檢查該flag是否為true，若為true，代表上傳時間到，進行一次上傳，再將flag=flase*/
             upload_schedule = new CronJob({
                 cronTime:UPLOAD_TIME,
@@ -642,3 +738,4 @@ function updateMission(assign_mission){
 exports.start=start;
 exports.addTrackId=addTrackId;
 exports.updateMission=updateMission;
+exports.waitingStop=waitingStop;

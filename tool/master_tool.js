@@ -27,7 +27,7 @@ class Track{
         this.sendoutList =  new Map();//(token,發出去的時間)
         this.trackPools={};//記錄pool name, pool用途描述, pool內擁有的track post info({post_id,created_time,pool_name})
         this.crawlersInfo=new Map();//(token, info) -> info({ip, port, created_time, active_time}), active_time預設為crawler最後一次回報的時間, 但是crawlerSatus有記錄crawler的狀態(init, done, ${time}), time為crawler接收到任務的時間, 假設一直都是時間, 則代表自上次發出任務以來, crawler都沒有回報, 該crawler可能已經停擺, 需要做過期處理
-        this.crawlerSatus=new Map();//(token, status), status(init/done/${time}), 交由missionStatus來管理, 記錄crawler的狀態
+        this.crawlerSatus=new Map();//(token, status), status(init/done/offline/${time}), 交由missionStatus來管理, 記錄crawler的狀態，init 和 done都是代表可以進行追蹤的crawler，offlline代表已下線，會被track master給清除，time代表該crawler從上次被分派任務後一直沒有回報狀態，這邊不做過期清理，因為track時間可能比較長
         this.schedulesInfo=new Map();//(schedule name, info), info({description, track_time, track_pool_name, track_num, status}), track_num:一次追蹤既幾個post id, status:該行程的開關狀態(on/off)
         this.cnt_store_file=0;
         this.total_files_num=Object.keys(master_setting['service_store_info']['info_type']).length;
@@ -127,6 +127,7 @@ class Track{
         }
         writeStream.end();
         writeStream.on('error',(err)=>{
+            this.cnt_store_file++;
             console.log(err);
         })
         writeStream.on('finish',()=>{
@@ -134,6 +135,7 @@ class Track{
             console.log('Store info done : '+service_store_info['info_type'][info_type]);
             if(this.cnt_store_file==this.total_files_num){
                 if(option=='end'){
+                    this.cnt_store_file=0;
                     console.log('Shutdown server after 5 secs...');
                     setTimeout(()=>{
                         process.exit(0);
@@ -556,31 +558,34 @@ class Track{
     }
 
     //insertCrawler(token,...args){
-    insertCrawler(token,{ip,port}={}){
+    insertCrawler(token,{ip,port,crawler_name,crawler_version,control_token}={}){
         if(!token){
             return false;
         }
         else if(this.crawlersInfo.has(token)){
             return false;
         }
-        /*
-        if(!args[0]){
-            return false;
-        }
-        else if(!args[0]['ip']||!args[0]['port']){
-            return false;
-        }
-        */
         if(!ip||!port){
            return false;
+        }
+        if(!crawler_name){
+            crawler_name = master_setting.crawler_name;
+        }
+        if(!crawler_version){
+            crawler_version = master_setting.crawler_version;
+        }
+        if(!control_token){
+            control_token = master_setting.control_token;
         }
         let info={};
         info['ip']=ip;
         info['port']=port;
+        info['crawler_name'] = crawler_name;
+        info['crawler_version'] = crawler_version;
+        info['control_token'] = control_token;
         info['created_time']=dateFormat(new Date(),'yyyy/mm/dd HH:MM:ss');
         info['active_time']=dateFormat(new Date(),'yyyy/mm/dd HH:MM:ss');
         this.crawlersInfo.set(token,info);
-        //this.crawlerSatus.set(token,'init');
         this.missionStatus(token,'init');
         return true;
     }
@@ -643,6 +648,9 @@ class Track{
             if(value=='init'||value=='done'){
                 token=key;
                 break;
+            }
+            else if(value=='offline'){//清除已下線的crawler
+                this.crawlerSatus.delete(key);
             }
 
         }
@@ -724,42 +732,41 @@ class Track{
                 var crawler=true,ids=true;
                 /*行程設定時間一到，先檢查有無可指派任務的crawler，再檢查有無id可發出。*/
                 while((crawler = _self.findMissionCrawler())&&(ids = _self.shiftTrackId(track_pool,info['track_num']))){
-                    //_self.crawlerSatus.set(crawler['token'],'ing');
                     /*若任務指派成功，則記錄該crawler被指派任務的時間，只要任務完成，就會改回'DONE'，否則就會一直是時間，可用來觀察crawler是否停擺*/
                     _self.missionStatus(crawler['token'],new Date());
                     /*TODO:testing*/
                     _self.recordPostSendTime(ids);
 
                     console.log('Crawler:');
-                    //console.dir(crawler,{colors:true});
+                    console.dir(crawler,{colors:true});
                     console.log('ids:');
-                    //console.dir(ids,{colors:true});
+                    console.dir(ids,{colors:true});
+
                     /*TODO:crawler_name,crawler_version,control_token之後也是由client給予，資訊會一起包在info裡，目前先用server端預設*/
-                    _self.sendMission(crawler['token'],{ip:crawler['info']['ip'],port:crawler['info']['port'],crawler_name:master_setting.crawler_name,crawler_version:master_setting.crawler_version,control_token:master_setting.control_token,track_ids:ids});
+                    //_self.sendMission(crawler['token'],{ip:crawler['info']['ip'],port:crawler['info']['port'],crawler_name:master_setting.crawler_name,crawler_version:master_setting.crawler_version,control_token:master_setting.control_token,track_ids:ids});
+                    _self.sendMission(crawler['token'],{ip:crawler['info']['ip'],port:crawler['info']['port'],crawler_name:crawler['info']['crawler_name'],crawler_version:crawler['info']['crawler_version'],control_token:crawler['info']['control_token'],track_ids:ids});
                 }
                 
                 //如果該pool已經空了，並且不為expire, past, fail pool(代表為一般追蹤pool，時間到就會去搜集，假設空了代表已清空，ex:預計9/11追蹤的pool已經沒有可追蹤的id，則可以停止追蹤該pool的schedule)，expire那些pool可能隨時會新增，為常駐schedule，不用停止
                 if(!ids){
                     if(track_pool!='expire'&&track_pool!='past'&&track_pool!='fail'){
-                        console.log('Stop schedule:'+name);
-                        writeLog('process','Stop schedule:'+name);
+                        console.log('Stop daily schedule:'+name);
+                        writeLog('process','Stop daily schedule:'+name);
                         _self.stopSchedules([name]);    
+                        //TODO:testing,需要設定 當新的一天到時要自動開啟daily行程
+                        let restart_daily = new CronJob({
+                            cronTime:'00 00 00 * * *',
+                            onTick:function(){
+                                console.log('Start daily schedule:'+name)
+                                _self.startSchedules([name]);
+                                //執行過一次後 就立即關閉
+                                restart_daily.stop();
+                            },
+                            start:true,
+                            timeZone:'Asia/Taipei'
+                        });
                     }
                 }
-
-                /*
-                   if(_self.hasTrackId(track_pool)&&(crawler = _self.findMissionCrawler())){
-                    let ids = _self.shiftTrackId(track_pool,info['track_num']);
-                    console.log('Crawler:'+JSON.stringify(crawler,null,3)+'\nids:'+JSON.stringify(ids,null,3));
-                }
-                else{
-                    delaySchdule({pool_name:track_pool,time:info['track_time'],track_num:info['track_num']});
-                }
-                */
-                /* TODO:如果目前該pool沒有任何id可以追蹤，或是沒有可以用的crawler，則將追蹤行程延後*/
-                /*分配id給crawler*/
-
-
             },
             start:true,
             timeZone:'Asia/Taipei'
@@ -977,6 +984,12 @@ class Track{
             return x.post_id;
         });
         //console.log('Master send:'+JSON.stringify(this.mission,null,3)+'URL:http://'+ip+':'+port+'/'+crawler_name+'/'+crawler_version+'/mission');
+        //
+        fs.appendFile('./check_sendMission.list','crawler_name:'+crawler_name+' crawler_version:'+crawler_version+' ip:'+ip+' port:'+port+' control_token:'+control_token+'\n',(err)=>{
+            if(err){
+                console.log('[check_sendMission.list] err:'+err);
+            }
+        });
         //return;
         request({
             method:'POST',

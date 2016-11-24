@@ -25,7 +25,7 @@ function updateFieldMap(data){
 }
 
 
-function applyCrawler({crawler_port,master_ip,master_port,master_name,master_version,invite_token},fin){
+function applyCrawler({control_token,crawler_name,crawler_version,crawler_port,master_ip,master_port,master_name,master_version,invite_token},fin){
     if(cnt_retry>retry_limit){
         writeLog('err','applyCrawler, retry over limit:'+cnt_retry);
         fin('err','applyCrawler, retry over limit:'+cnt_retry);
@@ -42,7 +42,10 @@ function applyCrawler({crawler_port,master_ip,master_port,master_name,master_ver
         },
         body:{
             access_token:invite_token,
-            port:crawler_port
+            port:crawler_port,
+            crawler_name:crawler_name,
+            crawler_version:crawler_version,
+            control_token:control_token
         },
         url:'http://'+master_ip+':'+master_port+'/'+master_name+'/'+master_version+'/apply',
         timeout:request_timeout*1000
@@ -71,8 +74,9 @@ function applyCrawler({crawler_port,master_ip,master_port,master_name,master_ver
             if(err){
                 console.log('applyCrawler, '+err.code);
                 if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
+                    cnt_retry++;
+                    console.log('Retry [applyCrawler]:'+err.code+' master_timeout_again:'+master_timeout_again+' cnt_retry:'+cnt_retry);
                     setTimeout(function(){
-                        cnt_retry++;
                         applyCrawler({crawler_port,master_ip,master_port,master_name,master_version,invite_token},fin);
                     },master_timeout_again*1000);
                 }
@@ -84,8 +88,9 @@ function applyCrawler({crawler_port,master_ip,master_port,master_name,master_ver
             else{
                 console.log('applyCrawler, '+res['statusCode']+', '+body['err']);
                 if(res.statusCode>=500&&res.statusCode<600){
+                    cnt_retry++;
+                    console.log('Retry [applyCrawler]:'+res['statusCode']+' master_timeout_again:'+master_timeout_again+' cnt_retry:'+cnt_retry);
                     setTimeout(function(){
-                        cnt_retry++;
                         applyCrawler({crawler_port,master_ip,master_port,master_name,master_version,invite_token},fin);
                     },master_timeout_again*1000);
                 }
@@ -98,6 +103,13 @@ function applyCrawler({crawler_port,master_ip,master_port,master_name,master_ver
     });
 }
 function uploadTrackPostData(master_button,{data,datatype},{center_ip,center_port,center_url},fin){
+    if(cnt_retry>retry_limit){
+        writeLog('err','uploadTrackPostData, retry over limit:'+cnt_retry);
+        fin('err','uploadTrackPostData, retry over limit:'+cnt_retry);
+        cnt_retry=0;
+        return;
+    }
+
     if(master_button['data']=='off'){
         fin('off','Need not connect to data center.');   
         return;
@@ -114,7 +126,7 @@ function uploadTrackPostData(master_button,{data,datatype},{center_ip,center_por
             console.log('Can\'t transfer data to gais rec!');
             process.exit(0);
         })
-        fin('false','Can\'t transfer data to gais rec!');   
+        fin('err','Can\'t transfer data to gais rec!');   
         return;
     }
     console.log('Upload data:http://'+center_ip+':'+center_port+center_url);
@@ -158,7 +170,7 @@ function uploadTrackPostData(master_button,{data,datatype},{center_ip,center_por
                     }
                     else{
                         if(content['error']&&content['error']!=''){
-                            fin('false',content['error']);   
+                            fin('err',content['error']);   
                         }
                         else{
 
@@ -168,6 +180,8 @@ function uploadTrackPostData(master_button,{data,datatype},{center_ip,center_por
                 }
             }
             else if(res.statusCode>=500&&res.statusCode<600){
+                cnt_retry++;
+                console.log('Retry [uploadTrackPostData]:'+res['statusCode']+' master_timeout_again:'+master_timeout_again+' cnt_retry:'+cnt_retry);
                 setTimeout(function(){
                     uploadTrackPostData(master_button,{data,datatype},{center_ip,center_port,center_url},fin)
                 },master_timeout_again*1000);
@@ -180,6 +194,8 @@ function uploadTrackPostData(master_button,{data,datatype},{center_ip,center_por
     });
     req.on('error', (err) => {
         if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
+            cnt_retry++;
+            console.log('Retry [uploadTrackPostData]:'+err.code+' master_timeout_again:'+master_timeout_again+'cnt_retry:'+cnt_retry);
             setTimeout(function(){
                 uploadTrackPostData(master_button,{data,datatype},{center_ip,center_port,center_url},fin)
             },master_timeout_again*1000);
@@ -193,6 +209,13 @@ function uploadTrackPostData(master_button,{data,datatype},{center_ip,center_por
     req.end();
 }
 function my_uploadTrackPostData(master_button,access_token,{data,datatype},{center_ip,center_port,center_name,center_version},fin){
+    if(cnt_retry>retry_limit){
+        writeLog('err','my_uploadTrackPostData, retry over limit:'+cnt_retry);
+        fin('err','my_uploadTrackPostData, retry over limit:'+cnt_retry);
+        cnt_retry=0;
+        return;
+    }
+
     if(master_button['my_data']=='off'){
         fin('off','Need not connect to my data center.');   
         return;
@@ -209,7 +232,7 @@ function my_uploadTrackPostData(master_button,access_token,{data,datatype},{cent
             console.log('Can\'t transfer data to gais rec!');
             process.exit(0);
         })
-        fin('false','Can\'t transfer data to gais rec!');   
+        fin('err','Can\'t transfer data to gais rec!');   
         return;
     }
     console.log('Upload data:http://'+center_ip+':'+center_port+'/'+center_name+'/'+center_version+'/data/'+datatype+'?access_token='+access_token);
@@ -251,6 +274,8 @@ function my_uploadTrackPostData(master_button,access_token,{data,datatype},{cent
                 }
             }
             else if(res.statusCode>=500&&res.statusCode<600){
+                cnt_retry++;
+                console.log('Retry [my_uploadTrackPostData]:'+res['statusCode']+' master_timeout_again:'+master_timeout_again+' cnt_retry:'+cnt_retry);
                 setTimeout(function(){
                     my_uploadTrackPostData(master_button,access_token,{data,datatype},{center_ip,center_port,center_name,center_version},fin)
                 },master_timeout_again*1000);
@@ -263,6 +288,8 @@ function my_uploadTrackPostData(master_button,access_token,{data,datatype},{cent
     });
     req.on('error', (err) => {
         if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
+            cnt_retry++;
+            console.log('Retry [my_uploadTrackPostData]:'+err.code+' master_timeout_again:'+master_timeout_again+' cnt_retry:'+cnt_retry);
             setTimeout(function(){
                 my_uploadTrackPostData(master_button,access_token,{data,datatype},{center_ip,center_port,center_name,center_version},fin)
             },master_timeout_again*1000);
@@ -328,69 +355,6 @@ function my_uploadTrackPostData(master_button,access_token,{data,datatype},{cent
     });
     */
 }
-//function uploadTrackPostId(ip,port,master_name,master_version,token,data,timeout,retryt,fin){
-//data cralwer用
-function uploadTrackPostId({master_ip,master_port,master_name,master_version,access_token,data},fin){
-    console.log('http://'+master_ip+':'+master_port+'/'+master_name+'/'+master_version+'/post_id');
-    request({
-        method:'POST',
-        json:true,
-        headers:{
-            "content-type":"application/json"
-        },
-        body:{
-            access_token:access_token,
-            data:data
-        },
-        url:'http://'+master_ip+':'+master_port+'/'+master_name+'/'+master_version+'/post_id',
-        timeout:request_timeout*1000
-    },(err,res,body)=>{
-        if(!err&&(res.statusCode>=200&&res.statusCode<300)){
-            var err_msg='';
-            var err_flag=0
-            try{
-                var content = body;
-            }
-            catch(e){
-                err_flag=1;
-                err_msg=e;
-            }
-            finally{
-                if(err_flag==1){
-                    fin('err',err_msg);
-                }
-                else{
-                    fin('ok',content);   
-                }
-            }
-
-        }
-        else{
-            if(err){
-                if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
-                    setTimeout(function(){
-                        uploadTrackPostId({master_ip,master_port,master_name,master_version,access_token,data},fin);
-                    },master_timeout_again*1000);
-                }
-                else{
-                    writeLog('err','uploadTrackPostId, '+err);
-                    fin('err','uploadTrackPostId, '+err);
-                }
-            }
-            else{
-                if(res.statusCode>=500&&res.statusCode<600){
-                    setTimeout(function(){
-                        uploadTrackPostId({master_ip,master_port,master_name,master_version,access_token,data},fin);
-                    },master_timeout_again*1000);
-                }
-                else{
-                    writeLog('err','uploadTrackPostId, '+res['statusCode']+', '+body['err']);
-                    fin('err','uploadTrackPostId, '+res['statusCode']+', '+body['err']);
-                }
-            }
-       }
-    });
-}
 //function listTrack(ip,port,master_name,master_version,token,date,timeout,retryt,fin){
 function listTrack({master_ip,master_port,master_name,master_version,access_token},fin){
     console.log('http://'+master_ip+':'+master_port+'/'+master_name+'/'+master_version+'/service_status')
@@ -426,6 +390,8 @@ function listTrack({master_ip,master_port,master_name,master_version,access_toke
         else{
             if(err){
                 if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
+                    cnt_retry++;
+                    console.log('Retry [listTrack]:'+err.code+' master_timeout_again:'+master_timeout_again+' cnt_retry:'+cnt_retry);
                     setTimeout(function(){
                         listTrack(ip,port,master_name,master_version,token,date,timeout,retryt,fin);
                     },master_timeout_again*1000);
@@ -437,6 +403,8 @@ function listTrack({master_ip,master_port,master_name,master_version,access_toke
             }
             else{
                 if(res.statusCode>=500&&res.statusCode<600){
+                    cnt_retry++;
+                    console.log('Retry [listTrack]:'+res['statusCode']+' master_timeout_again:'+master_timeout_again+' cnt_retry:'+cnt_retry);
                     setTimeout(function(){
                         listTrack(ip,port,master_name,master_version,token,date,timeout,retryt,fin);
                     },master_timeout_again*1000);
@@ -449,7 +417,7 @@ function listTrack({master_ip,master_port,master_name,master_version,access_toke
        }
     });
 }
-function missionReport({data,master_ip,master_port,master_name,master_version,access_token,mission_status},fin){
+function missionReport({crawler_name,data,master_ip,master_port,master_name,master_version,access_token,mission_status},fin){
     request({
         method:'POST',
         json:true,
@@ -459,7 +427,8 @@ function missionReport({data,master_ip,master_port,master_name,master_version,ac
         body:{
             access_token:access_token,
             mission_status:mission_status,
-            data:data
+            data:data,
+            crawler_name:crawler_name
         },
         url:'http://'+master_ip+':'+master_port+'/'+master_name+'/'+master_version+'/mission_report',
         timeout:request_timeout*1000
@@ -490,6 +459,8 @@ function missionReport({data,master_ip,master_port,master_name,master_version,ac
         else{
             if(err){
                 if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
+                    cnt_retry++;
+                    console.log('Retry [missionReport]:'+err.code+' master_timeout_again:'+master_timeout_again+' cnt_retry:'+cnt_retry);
                     setTimeout(function(){
                         missionReport({data,master_ip,master_port,master_name,master_version,access_token,mission_status},fin);
                     },master_timeout_again*1000);
@@ -501,6 +472,8 @@ function missionReport({data,master_ip,master_port,master_name,master_version,ac
             }
             else{
                 if(res.statusCode>=500&&res.statusCode<600){
+                    cnt_retry++;
+                    console.log('Retry [missionReport]:'+res['statusCode']+' master_timeout_again:'+master_timeout_again+' cnt_retry:'+cnt_retry);
                     setTimeout(function(){
                         missionReport({data,master_ip,master_port,master_name,master_version,access_token,mission_status},fin);
                     },master_timeout_again*1000);
@@ -525,20 +498,20 @@ function trackPost(graph_option,mission,post_id,fin){
         cnt_retry=0;
         return;
     }
-    console.log('Mission:');
+    //console.log('Mission:');
     //console.dir(mission,{colors:true});
     var site = mission['info']['site']+mission['info']['graph_version']+'/'+post_id;
-    if(graph_option=='field1'){
+    if(graph_option=='field1'){//針對貼文本身資訊
         site+='?fields='+mission['info']['field1']+'&access_token='+mission['token']['graph_token']+'&limit='+mission['info']['limit'];
     }
-    else if(graph_option=='field2'){
+    else if(graph_option=='field2'){//針對回文資料
         site+='/comments?fields='+mission['info']['field2']+'&access_token='+mission['token']['graph_token']+'&limit='+mission['info']['limit'];
     }
     else{
         fin('err','trackPost, graph_option must be [field1/field2]');
         return;
     }
-    console.log('\nRequest:'+site);
+    console.log('[trackPost] Request:'+site);
     //return;
     request({
         url:site,
@@ -567,9 +540,10 @@ function trackPost(graph_option,mission,post_id,fin){
         else{
             if(err){
                 if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
-                    console.log('Retry [trackPost]:'+err.code);
+                    cnt_retry++;
+                    console.log('Retry [trackPost]:'+err.code+' graph_timeout_again:'+graph_timeout_again+' cnt_retry:'+cnt_retry);
+
                     setTimeout(function(){
-                        cnt_retry++;
                         trackPost(graph_option,mission,post_id,fin);
                     },graph_timeout_again*1000);
                 }
@@ -580,9 +554,9 @@ function trackPost(graph_option,mission,post_id,fin){
             }
             else{
                 if(res.statusCode>=500&&res.statusCode<600){
-                    console.log('Retry [trackPost]:'+res.statusCode);
+                    cnt_retry++;
+                    console.log('Retry [trackPost]:'+res['statusCode']+' graph_timeout_again:'+graph_timeout_again+' cnt_retry:'+cnt_retry);
                     setTimeout(function(){
-                        cnt_retry++;
                         trackPost(graph_option,mission,post_id,fin)
                     },graph_timeout_again*1000);
                 }
@@ -1159,6 +1133,13 @@ function parseReaction(fields,content){
     }
 }
 function fetchNextPage(mission,site,fin){
+    if(cnt_retry>retry_limit){
+        writeLog('err','fetchNextPage, retry over limit:'+cnt_retry);
+        fin('err','fetchNextPage, retry over limit:'+cnt_retry);
+        cnt_retry=0;
+        return;
+    }
+
     request({
         url:site,
         timeout:request_timeout*1000
@@ -1187,6 +1168,8 @@ function fetchNextPage(mission,site,fin){
             if(err){
                 console.log('err:'+err);
                 if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
+                    cnt_retry++;
+                    console.log('Retry [fetchNextPage]:'+err.code+' graph_timeout_again:'+graph_timeout_again+' cnt_retry:'+cnt_retry);
                     setTimeout(function(){
                         fetchNextPage(mission,site,fin);
                     },graph_timeout_again*1000);
@@ -1198,6 +1181,8 @@ function fetchNextPage(mission,site,fin){
             }
             else{
                 if(res.statusCode>=500&&res.statusCode<600){
+                    cnt_retry++;
+                    console.log('Retry [fetchNextPage]:'+res['statusCode']+' graph_timeout_again:'+graph_timeout_again+' cnt_retry:'+cnt_retry);
                     setTimeout(function(){
                         fetchNextPage(mission,site,fin);
                     },graph_timeout_again*1000);
@@ -1415,7 +1400,6 @@ exports.writeRec=writeRec;
 exports.applyCrawler=applyCrawler;
 exports.missionReport=missionReport;
 exports.trackPost=trackPost;
-exports.uploadTrackPostId=uploadTrackPostId;
 exports.uploadTrackPostData=uploadTrackPostData;
 exports.my_uploadTrackPostData=my_uploadTrackPostData;
 exports.listTrack=listTrack;

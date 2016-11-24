@@ -193,9 +193,10 @@ master.post('/apply',function(req,res){
         access_token = md5(req.ip+new Date()+Math.floor(Math.random() * (master_setting.random['max'] - master_setting.random['min'] + 1)) + master_setting.random['min']);
     }
     result['access_token'] = access_token;
-    
+    result['check'] = 'Hello '+req.body['crawler_name']+' version:'+req.body['crawler_version']+' control_token:'+req.body['control_token'];
+
     req.port = req.body.port;
-    track.insertCrawler(access_token,{ip:req.ip,port:req.port});
+    track.insertCrawler(access_token,{ip:req.ip,port:req.port,crawler_name:req.body['crawler_name'],crawler_version:req.body['crawler_version'],control_token:req.body['control_token']});
 
     sendResponse(res,'ok',200,result);
     track.sendApply2DataCenter(access_token,{ip:req.ip,port:req.port},{center_ip:master_setting['my_center_ip'],center_port:master_setting['my_center_port'],center_name:master_setting['my_center_name'],center_version:master_setting['my_center_version'],control_token:master_setting['control_token']});   
@@ -223,18 +224,22 @@ master.route('/mission_report')
 
     //console.log('Master receive:\n'+JSON.stringify(req.body,null,3));
     //將已完成的post從post_idInfo中移除，將失敗的post也移除，並放入失敗pool裡待抓取
-    track.postTrackFinish('success',success_ids);
-    track.postTrackFinish('fail',fail_ids);
-
-    var result;
-
+    if(success_ids.length!=0){
+        track.postTrackFinish('success',success_ids);
+    }
+    if(fail_ids.length!=0){
+        track.postTrackFinish('fail',fail_ids);
+    }
+    var result='';
+    if(mission_status=='offline'){
+        result='Receive last mission report, good night '+req.body['crawler_name']+'. ';
+    }
     if(track.missionStatus(access_token,mission_status)){
-        //result='get token:'+access_token+' get status:'+mission_status;
-        result='Success update crawler ['+access_token+'] status!';
+        result+='Success update crawler status.';
         sendResponse(res,'ok',200,result);
     }
     else{
-        result='Update crawler ['+access_token+'] status fail!';
+        result='Update crawler status fail, who are you?';
         sendResponse(res,'fail',200,result);
     }
 })
@@ -449,12 +454,29 @@ function getIntervalPool(from_date,to_date){
 
 function getGraphToken(){
     var token;
+    var min;
     for(let [key,value] of graph_tokens.entries()){
+        //TODO:目前先不設限制，但之後要記錄
+        if(!min){
+            min = value;
+            token = key;
+            continue
+        }
+        if(value<min){
+            min = value;
+            token = key;
+            graph_tokens.set(key,value+1);
+            if(value==0){
+                break;
+            }
+        }
+        /*
         if(value<master_setting.graph_token_limit){
             token=key;
             graph_tokens.set(key,value+1);
             break;
         }
+        */
     }
     if(!token){
         return false;
