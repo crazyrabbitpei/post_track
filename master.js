@@ -280,7 +280,7 @@ master.route('/service_status')
  *  -需要欲查詢之id
  *  -回傳查詢結果(是否存在、所在pool)
  */
-
+/*TODO:目前雖然會接受post id，但是不讀進memory，純粹搜集 append到檔案裡存放，等到有獨立機器，或是有夠多cralwers可以消化時，在放進memory裡追蹤*/
 master.route('/post_id')
 .post(function(req,res){
     var track_pages = req.body['data']['track_pages'];
@@ -288,7 +288,6 @@ master.route('/post_id')
     var fail_id=[];
     var success_id=[];
     track_pages.map(function(post){
-        /*該post已存在於tracking list*/
         if(!track.insertIdToPool(post.id,{created_time:post.created_time,pool_name:post.pool_name})){
             fail_id.push(post.id);
         }
@@ -298,7 +297,6 @@ master.route('/post_id')
     });
     result['success']=success_id;
     result['fail']=fail_id;
-    //result='Upload fail:['+fail_id+']';
     sendResponse(res,'ok',200,result);
 })
 .put(function(req,res){

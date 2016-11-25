@@ -105,16 +105,16 @@ class Track{
         this.write2File('map','crawlersInfo',this.crawlersInfo,true,option);
         this.write2File('map','crawlerSatus',this.crawlerSatus,false,option);
         this.write2File('map','schedulesInfo',this.schedulesInfo,true,option);
-        this.write2File('object','trackPools',this.trackPools,true,option);
+        /*TODO:目前做法：每當有post id時就會直接appned到檔案裡，不需要定期備份*/
+        //this.write2File('object','trackPools',this.trackPools,true,option);
     }
 
     //TODO:testing
     write2File(flag,info_type,info,parseFlag,option){
-        console.log(`Store ${info_type} to file :`+service_store_info['info_type'][info_type]);
-        writeLog('process',`Store ${info_type} to file :`+service_store_info['info_type'][info_type]);
-        var writeStream = fs.createWriteStream(service_store_info['dir']+'/'+service_store_info['info_type'][info_type]);
-
         if(flag=='map'){
+            console.log(`Store ${info_type} to file :`+service_store_info['info_type'][info_type]);
+            writeLog('process',`Store ${info_type} to file :`+service_store_info['info_type'][info_type]);
+            var writeStream = fs.createWriteStream(service_store_info['dir']+'/'+service_store_info['info_type'][info_type]);
             for(let [key,value] of info.entries()){
                 if(parseFlag){
                     value = JSON.stringify(value);
@@ -123,6 +123,19 @@ class Track{
             }
         }
         else{
+            /*TODO:不同日期的pool用不同的檔案存放，expire,past,fail...也分開放*/
+            /*
+            let today = dateFormat(new Date(),'yyyymmdd');
+            let obj = Object.keys(info);
+            for(let i=0;i<obj.length;i++){
+                writePool(obj[i],info,info_type,info,parseFlag,option);
+            }
+            */
+
+            /*以下的做法會導致memory不足，因為pools的消化速度不夠，每日會有幾百萬的文章要追蹤*/
+            console.log(`Store ${info_type} to file :`+service_store_info['info_type'][info_type]);
+            writeLog('process',`Store ${info_type} to file :`+service_store_info['info_type'][info_type]);
+            var writeStream = fs.createWriteStream(service_store_info['dir']+'/'+service_store_info['info_type'][info_type]);
             writeStream.write(JSON.stringify(info,null,2)); 
         }
         writeStream.end();
@@ -149,7 +162,15 @@ class Track{
         });
 
     }
-
+    /*
+       writePool(obj_name,info,info_type,info,parseFlag,option){
+       console.log(`Store ${obj_name}_${info_type} to file :`+service_store_info['dir']+'/'+service_store_info['pools_dir']+'/'+obj_name+'_'+service_store_info['info_type'][info_type]);
+       writeLog('process',`Store ${info_type} to file :`+service_store_info['dir']+'/'+service_store_info['pools_dir']+'/'+obj_name+'_'+service_store_info['info_type'][info_type]);
+       var writeStream = fs.createWriteStream(service_store_info['dir']+'/'+service_store_info['pools_dir']+'/'+obj_name+'_'+service_store_info['info_type'][info_type]);
+       writeStream.write(JSON.stringify(this.info['']))
+       writeStream.write(JSON.stringify(info,null,2)); 
+       }
+       */
     //TODO:testing
     readInfoFromFile(option){
         this.read2memory('map','sendoutList',this.sendoutList,false,option);
@@ -405,7 +426,15 @@ class Track{
         if(!this.checkPoolName(name)){
             this.newPool(name);
         }
-        this.trackPools[name]['data'].push({post_id:post_id,created_time:created_time,pool_name:name});
+
+
+        /*TODO:不存進memory，目前直接appned在檔案裡就好，意即目前不會分發任何追蹤post id給cralwers，純粹儲存post id*/
+        fs.appendFile(service_store_info['dir']+'/'+service_store_info['pools_dir']+'/'+name+'_pool.list',post_id+','+created_time+','+name+'\n',(err)=>{
+            if(err){
+                writeLog('err','Can\'t append post id info to:'+service_store_info['dir']+'/'+service_store_info['pools_dir']+'/pools.list');
+            }
+        });
+        //this.trackPools[name]['data'].push({post_id:post_id,created_time:created_time,pool_name:name});
 
         return true;
     }
@@ -552,9 +581,13 @@ class Track{
         created_time=new Date(created_time);
         var after = created_time.getDate()+master_setting['track_interval'];
         created_time.setDate(after);
+        /*
         var mm = created_time.getMonth()+1;
         var dd = created_time.getDate();
-        return  mm+'/'+dd;
+        */
+        var result = dateFormat(created_time,'yyyymmdd');
+        //return  mm+'/'+dd;
+        return  result;
     }
 
     //insertCrawler(token,...args){
@@ -723,7 +756,8 @@ class Track{
             onTick:function(){
                 let track_pool;
                 if(info['track_pool_name']=='default'){
-                    track_pool = (new Date().getMonth()+1)+'/'+new Date().getDate();
+                    track_pool = dateFormat(new Date(),'yyyymmdd');
+                    //track_pool = (new Date().getMonth()+1)+'/'+new Date().getDate();
                 }
                 else{
                     track_pool = info['track_pool_name'];

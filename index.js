@@ -502,6 +502,47 @@ else{
                         app.use('/'+crawler_name+'/'+crawler_version,crawler);
                         mission['token']['graph_token']=msg['data']['graph_token'];
                         mission['token']['access_token']=msg['data']['access_token'];
+
+                        track_tool.reImportData('mydata',mission['info']['master'],mission['token']['access_token'],{datatype:mission['info']['datatype']},{center_ip:mission['info']['my_center_ip'],center_port:mission['info']['my_center_port'],center_name:mission['info']['my_center_name'],center_version:mission['info']['my_center_version']},(flag,msg)=>{
+                            if(flag=='ok'){
+                                console.log('[reImportData-mydata] ok:'+msg);
+                                track_tool.writeLog('process','[reImportData-mydata] ok:'+msg);
+                            }
+                            else if(flag=='err'){
+                                console.log('[reImportData-mydata] '+msg);
+                                waitingStop('[reImportData-mydata] err:'+msg);
+                            }
+                            else if(flag=='off'){
+                                console.log('[reImportData-mydata] '+msg);
+                                track_tool.writeLog('process','[reImportData-mydata] '+msg);
+                            }
+
+                        });
+                        track_tool.reImportData('data',mission['info']['master'],{datatype:mission['info']['datatype']},{center_ip:mission['info']['center_ip'],center_port:mission['info']['center_port'],center_url:mission['info']['center_url']},(flag,msg)=>{
+                            if(flag=='ok'){
+                                console.log('[reImportData-data] ok:'+msg);
+                                track_tool.writeLog('process','[reImportData-data] ok:'+msg);
+                            }
+                            else if(flag=='err'){
+                                console.log('[reImportData-data] '+msg);
+                                waitingStop('[reImportData-data] err:'+msg);
+                            }
+                            else if(flag=='off'){
+                                console.log('[reImportData-data] '+msg);
+                                track_tool.writeLog('process','[reImportData-data] '+msg);
+                            }
+                        });
+
+                        var mission_status='done';
+                        track_tool.reImportMission('missreport',{crawler_name,master_ip,master_port,master_name,master_version,access_token:mission['token']['access_token'],mission_status},(flag,msg)=>{
+                            if(flag=='ok'&&msg&&msg['data']&&msg['status']=='ok'){
+                                console.log('[reImportMission] ok:'+JSON.stringify(msg,null,2));
+                            }
+                            else{
+                                console.log('[reImportMission] err:'+JSON.stringify(msg));
+                                waitingStop('[reImportMission] err:'+msg);
+                            }
+                        });
                     }
                     else{
                         console.log('[applyCrawler] err:'+JSON.stringify(msg));
@@ -557,10 +598,51 @@ else{
                                             logger.timeEnd('listTrack');
                                             //console.log('listTrack:\n'+JSON.stringify(msg,null,3));
                                         });
+
+                                        track_tool.reImportData('mydata',mission['info']['master'],mission['token']['access_token'],{datatype:mission['info']['datatype']},{center_ip:mission['info']['my_center_ip'],center_port:mission['info']['my_center_port'],center_name:mission['info']['my_center_name'],center_version:mission['info']['my_center_version']},(flag,msg)=>{
+                                            if(flag=='ok'){
+                                                console.log('[reImportData-mydata] ok:'+msg);
+                                                track_tool.writeLog('process','[reImportData-mydata] ok:'+msg);
+                                            }
+                                            else if(flag=='err'){
+                                                console.log('[reImportData-mydata] '+msg);
+                                                waitingStop('[reImportData-mydata] err:'+msg);
+                                            }
+                                            else if(flag=='off'){
+                                                console.log('[reImportData-mydata] '+msg);
+                                                track_tool.writeLog('process','[reImportData-mydata] '+msg);
+                                            }
+
+                                        });
+                                        track_tool.reImportData('data',mission['info']['master'],{datatype:mission['info']['datatype']},{center_ip:mission['info']['center_ip'],center_port:mission['info']['center_port'],center_url:mission['info']['center_url']},(flag,msg)=>{
+                                            if(flag=='ok'){
+                                                console.log('[reImportData-data] ok:'+msg);
+                                                track_tool.writeLog('process','[reImportData-data] ok:'+msg);
+                                            }
+                                            else if(flag=='err'){
+                                                console.log('[reImportData-data] '+msg);
+                                                waitingStop('[reImportData-data] err:'+msg);
+                                            }
+                                            else if(flag=='off'){
+                                                console.log('[reImportData-data] '+msg);
+                                                track_tool.writeLog('process','[reImportData-data] '+msg);
+                                            }
+                                        });
+                                        var mission_status='done';
+                                        track_tool.reImportMission('missreport',{crawler_name,master_ip,master_port,master_name,master_version,access_token:mission['token']['access_token'],mission_status},(flag,msg)=>{
+                                            if(flag=='ok'&&msg&&msg['data']&&msg['status']=='ok'){
+                                                console.log('[reImportMission] ok:'+JSON.stringify(msg,null,2));
+                                            }
+                                            else{
+                                                console.log('[reImportMission] err:'+JSON.stringify(msg));
+                                                waitingStop('[reImportMission] err:'+msg);
+                                            }
+                                        });
+
                                     }
                                     else{
                                         console.log('[applyCrawler] err:'+JSON.stringify(msg));
-                                        //console.dir(msg,{colors:true});
+                                        waitingStop('[applyCrawler] err:'+JSON.stringify(msg));
                                     }
                                 });
                             }

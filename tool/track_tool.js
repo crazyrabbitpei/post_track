@@ -18,6 +18,8 @@ const master_timeout_again = crawler_setting['master_timeout_again'];
 const graph_timeout_again = crawler_setting['graph_timeout_again'];
 const retry_limit = crawler_setting['retry_limit'];
 var cnt_retry=0;
+var upload_cnt_retry=0;
+var myupload_cnt_retry=0;
 var fieldMap={};
 
 function updateFieldMap(data){
@@ -103,13 +105,6 @@ function applyCrawler({control_token,crawler_name,crawler_version,crawler_port,m
     });
 }
 function uploadTrackPostData(master_button,{data,datatype},{center_ip,center_port,center_url},fin){
-    if(cnt_retry>retry_limit){
-        writeLog('err','uploadTrackPostData, retry over limit:'+cnt_retry);
-        fin('err','uploadTrackPostData, retry over limit:'+cnt_retry);
-        cnt_retry=0;
-        return;
-    }
-
     if(master_button['data']=='off'){
         fin('off','Need not connect to data center.');   
         return;
@@ -129,6 +124,7 @@ function uploadTrackPostData(master_button,{data,datatype},{center_ip,center_por
         fin('err','Can\'t transfer data to gais rec!');   
         return;
     }
+
     console.log('Upload data:http://'+center_ip+':'+center_port+center_url);
     fs.appendFile('./link','Upload data:http://'+center_ip+':'+center_port+center_url+'\n',(err)=>{});
     var options = {
@@ -166,56 +162,75 @@ function uploadTrackPostData(master_button,{data,datatype},{center_ip,center_por
                 }
                 finally{
                     if(err_flag==1){
-                        fin('err',err_msg);
+                        missData(ori,'data',(stat)=>{
+                            fin('err',err_msg);
+                        });
                     }
                     else{
                         if(content['error']&&content['error']!=''){
-                            fin('err',content['error']);   
+                            missData(ori,'data',(stat)=>{
+                                fin('err',content['error']);   
+                            });
                         }
                         else{
-
                             fin('ok',content['result']);   
                         }
                     }
                 }
             }
             else if(res.statusCode>=500&&res.statusCode<600){
-                cnt_retry++;
-                console.log('Retry [uploadTrackPostData]:'+res['statusCode']+' master_timeout_again:'+master_timeout_again+' cnt_retry:'+cnt_retry);
+                upload_cnt_retry++;
+                if(upload_cnt_retry>retry_limit){
+                    missData(ori,'data',(stat)=>{
+                        writeLog('err','uploadTrackPostData, retry over limit:'+upload_cnt_retry);
+                        fin('err','uploadTrackPostData, retry over limit:'+upload_cnt_retry);
+                    });
+                    upload_cnt_retry=0;
+                    return;
+                }
+
+                console.log('Retry [uploadTrackPostData]:'+res['statusCode']+' master_timeout_again:'+master_timeout_again+' upload_cnt_retry:'+upload_cnt_retry);
                 setTimeout(function(){
                     uploadTrackPostData(master_button,{data,datatype},{center_ip,center_port,center_url},fin)
                 },master_timeout_again*1000);
             }
             else{
-                writeLog('err','uploadTrackPostData, '+res['statusCode']+', '+body);
-                fin('err','uploadTrackPostData, '+res['statusCode']+', '+body);
+                missData(ori,'data',(stat)=>{
+                    writeLog('err','uploadTrackPostData, '+res['statusCode']+', '+body);
+                    fin('err','uploadTrackPostData, '+res['statusCode']+', '+body);
+                });
+
             }
         });
     });
     req.on('error', (err) => {
         if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
-            cnt_retry++;
-            console.log('Retry [uploadTrackPostData]:'+err.code+' master_timeout_again:'+master_timeout_again+'cnt_retry:'+cnt_retry);
+            upload_cnt_retry++;
+            if(upload_cnt_retry>retry_limit){
+                missData(ori,'data',(stat)=>{
+                    writeLog('err','uploadTrackPostData, retry over limit:'+upload_cnt_retry);
+                    fin('err','uploadTrackPostData, retry over limit:'+upload_cnt_retry);
+                });
+                upload_cnt_retry=0;
+                return;
+            }
+
+            console.log('Retry [uploadTrackPostData]:'+err.code+' master_timeout_again:'+master_timeout_again+'upload_cnt_retry:'+upload_cnt_retry);
             setTimeout(function(){
                 uploadTrackPostData(master_button,{data,datatype},{center_ip,center_port,center_url},fin)
             },master_timeout_again*1000);
         }
         else{
-            writeLog('err','uploadTrackPostData, '+err);
-            fin('err','uploadTrackPostData, '+err);
+            missData(ori,'data',(stat)=>{
+                writeLog('err','uploadTrackPostData, '+err);
+                fin('err','uploadTrackPostData, '+err);
+            });
         }
     });
     req.write(ori);
     req.end();
 }
 function my_uploadTrackPostData(master_button,access_token,{data,datatype},{center_ip,center_port,center_name,center_version},fin){
-    if(cnt_retry>retry_limit){
-        writeLog('err','my_uploadTrackPostData, retry over limit:'+cnt_retry);
-        fin('err','my_uploadTrackPostData, retry over limit:'+cnt_retry);
-        cnt_retry=0;
-        return;
-    }
-
     if(master_button['my_data']=='off'){
         fin('off','Need not connect to my data center.');   
         return;
@@ -266,7 +281,9 @@ function my_uploadTrackPostData(master_button,access_token,{data,datatype},{cent
                 }
                 finally{
                     if(err_flag==1){
-                        fin('err',err_msg);
+                        missData(ori,'mydata',(stat)=>{
+                            fin('err',err_msg);
+                        });
                     }
                     else{
                         fin('ok',content);   
@@ -274,86 +291,54 @@ function my_uploadTrackPostData(master_button,access_token,{data,datatype},{cent
                 }
             }
             else if(res.statusCode>=500&&res.statusCode<600){
-                cnt_retry++;
-                console.log('Retry [my_uploadTrackPostData]:'+res['statusCode']+' master_timeout_again:'+master_timeout_again+' cnt_retry:'+cnt_retry);
+                myupload_cnt_retry++;
+                if(myupload_cnt_retry>retry_limit){
+                    missData(ori,'mydata',(stat)=>{
+                        writeLog('err','my_uploadTrackPostData, retry over limit:'+myupload_cnt_retry);
+                        fin('err','my_uploadTrackPostData, retry over limit:'+myupload_cnt_retry);
+                    });
+                    myupload_cnt_retry=0;
+                    return;
+                }
+
+                console.log('Retry [my_uploadTrackPostData]:'+res['statusCode']+' master_timeout_again:'+master_timeout_again+' myupload_cnt_retry:'+myupload_cnt_retry);
                 setTimeout(function(){
                     my_uploadTrackPostData(master_button,access_token,{data,datatype},{center_ip,center_port,center_name,center_version},fin)
                 },master_timeout_again*1000);
             }
             else{
-                writeLog('err','my_uploadTrackPostData, '+res['statusCode']+', '+body['err']);
-                fin('err','my_uploadTrackPostData, '+res['statusCode']+', '+body['err']);
+                missData(ori,'mydata',(stat)=>{
+                    writeLog('err','my_uploadTrackPostData, '+res['statusCode']+', '+body['err']);
+                    fin('err','my_uploadTrackPostData, '+res['statusCode']+', '+body['err']);
+                });
             }
         });
     });
     req.on('error', (err) => {
         if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
-            cnt_retry++;
-            console.log('Retry [my_uploadTrackPostData]:'+err.code+' master_timeout_again:'+master_timeout_again+' cnt_retry:'+cnt_retry);
+            myupload_cnt_retry++;
+            if(myupload_cnt_retry>retry_limit){
+                missData(ori,'mydata',(stat)=>{
+                    writeLog('err','my_uploadTrackPostData, retry over limit:'+myupload_cnt_retry);
+                    fin('err','my_uploadTrackPostData, retry over limit:'+myupload_cnt_retry);
+                });
+                myupload_cnt_retry=0;
+                return;
+            }
+            console.log('Retry [my_uploadTrackPostData]:'+err.code+' master_timeout_again:'+master_timeout_again+' myupload_cnt_retry:'+myupload_cnt_retry);
             setTimeout(function(){
                 my_uploadTrackPostData(master_button,access_token,{data,datatype},{center_ip,center_port,center_name,center_version},fin)
             },master_timeout_again*1000);
         }
         else{
-            writeLog('err','my_uploadTrackPostData, '+err);
-            fin('err','my_uploadTrackPostData, '+err);
+            missData(ori,'mydata',(stat)=>{
+                writeLog('err','my_uploadTrackPostData, '+err);
+                fin('err','my_uploadTrackPostData, '+err);
+            });
         }
     });
     req.write(ori);
     req.end();
-    /*
-    request({
-        method:'POST',
-        body:data,
-        url:'http://'+center_ip+':'+center_port+'/'+center_name+'/'+center_version+'/data/'+datatype+'?access_token='+access_token,
-        timeout:request_timeout*1000
-    },(err,res,body)=>{
-        if(!err&&(res.statusCode>=200&&res.statusCode<300)){
-            var err_msg='';
-            var err_flag=0
-            try{
-                var content = body;
-            }
-            catch(e){
-                err_flag=1;
-                err_msg=e;
-            }
-            finally{
-                if(err_flag==1){
-                    fin('err',err_msg);
-                }
-                else{
-                    fin('ok',content);   
-                }
-            }
-
-        }
-        else{
-            if(err){
-                if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
-                    setTimeout(function(){
-                        uploadTrackPostData(access_token,data,fin);
-                    },master_timeout_again*1000);
-                }
-                else{
-                    writeLog('err','uploadTrackPostData, '+err);
-                    fin('err','uploadTrackPostData, '+err);
-                }
-            }
-            else{
-                if(res.statusCode>=500&&res.statusCode<600){
-                    setTimeout(function(){
-                        uploadTrackPostData(access_token,data,fin);
-                    },master_timeout_again*1000);
-                }
-                else{
-                    writeLog('err','uploadTrackPostData, '+res['statusCode']+', '+body['err']);
-                    fin('err','uploadTrackPostData, '+res['statusCode']+', '+body['err']);
-                }
-            }
-       }
-    });
-    */
 }
 //function listTrack(ip,port,master_name,master_version,token,date,timeout,retryt,fin){
 function listTrack({master_ip,master_port,master_name,master_version,access_token},fin){
@@ -417,7 +402,141 @@ function listTrack({master_ip,master_port,master_name,master_version,access_toke
        }
     });
 }
+//TODO:testing
+function reImportData(master_button,{datatype},{center_ip,center_port,center_url},fin){
+    let filename;
+    if(type=='data'){
+        filename = crawler_setting['miss_data'];
+
+    }
+    else if(type=='mydata'){
+        filename = miss_data['miss_mydata'];
+    }
+
+    fs.readFile(crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/missData'+filename,(err,data)=>{
+        if(err){
+            fin('err',err);
+        }
+        else{
+            if(data==''){
+                fin('ok','');
+                return;
+            }
+            //備份上一次沒上傳成功的data
+            fs.writeFile(crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/last_missData'+filename,data,(err)=>{
+                if(err){
+                    fin('err','Can\'t backup last miss data:'+rawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/last_missData'+filename);
+                }
+                else{
+                    //因為都讀進memory裡，讀取成功後立即清空檔案，如此在重新上傳遇到失敗時，才不會有重複data在檔案裡
+                    fs.writeFile(crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/missData'+filename,'',(err)=>{
+                        if(err){
+                            fin('err','Can\'t clean :'+crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/missData'+filename);
+                        }
+                        else{
+                            if(type=='data'){
+                                uploadTrackPostData(master_button,{data,datatype},{center_ip,center_port,center_url},(flag,msg)=>{
+                                    fin(flag,msg);
+                                });
+                            }
+                            else if(type=='mydata'){
+                                my_uploadTrackPostData(master_button,access_token,{data,datatype},{center_ip,center_port,center_name,center_version},(flag,msg)=>{
+                                    fin(flag,msg);
+                                });
+                            }
+                        }
+                    });
+                }
+            });
+        }
+    });
+}
+//TODO:testing
+function reImportMission({crawler_name,master_ip,master_port,master_name,master_version,access_token,mission_status},fin){
+    fs.readFile(crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/missMissionReport'+crawler_setting['miss_missionreport_filename'],(err,data)=>{
+        if(err){
+            fin('err',err);
+        }
+        else{
+            if(data==''){
+                fin('ok','');
+                return;
+            }
+            
+            fs.writeFile(crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/last_missMissionReport'+crawler_setting['miss_missionreport_filename'],data,(err)=>{
+                if(err){
+                    fin('err','Can\'t backup last miss data:'+rawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/last_missMissionReport'+rawler_setting['miss_missionreport_filename']);
+
+                }
+                else{
+                    //因為都讀進memory裡，讀取成功後立即清空檔案，如此在重新上傳遇到失敗時，才不會有重複data在檔案裡
+                    fs.writeFile(crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/missMissionReport'+crawler_setting['miss_missionreport_filename'],'',(err)=>{
+                        if(err){
+                            fin('err','Can\'t clean :'+crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/missMissionReport'+crawler_setting['miss_missionreport_filename']);
+                        }
+                        else{
+                            var err_msg='',err_flag=0;
+                            var result;
+                            try{
+                                result = JSON.stringify(data);
+                            }
+                            catch(e){
+                                err_flag=1;
+                                err_msg=e;
+                            }
+                            finally{
+                                if(err_flag){
+                                    fin('err',e);
+                                }
+                                else{
+                                    missionReport({crawler_name,data,master_ip,master_port,master_name,master_version,access_token,mission_status},(flag,msg)=>{
+                                        fin(flag,msg);
+                                    });
+                                }
+                            }
+
+                        }
+                    });
+                }
+            });
+        }
+    });
+}
+//TODO:testing
+function missData(data,type,fin){
+    let filename;
+    if(type=='data'){
+        filename = crawler_setting['miss_data'];
+    }
+    else{
+        filename = miss_data['miss_mydata'];
+    }
+    fs.appendFile(crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/missData'+filename,data,(err)=>{
+        if(err){
+            console.log('[missData] err:'+err);
+            writeLog('err','missData, '+err);
+            fin('err');
+        }
+        else{
+            fin('ok');
+        }
+    });
+}
+//TODO:testing
+function missMissionReport(data,fin){
+    fs.writeFile(crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/missMissionReport'+crawler_setting['miss_missionreport_filename'],JSON.stringify(data),(err)=>{
+        if(err){
+            console.log('[missMissionReport] err:'+err);
+            writeLog('err','missMissionReport, '+err);
+            fin('err');
+        }
+        else{
+            fin('ok');
+        }
+    });
+}
 function missionReport({crawler_name,data,master_ip,master_port,master_name,master_version,access_token,mission_status},fin){
+    let temp_data=data;
     request({
         method:'POST',
         json:true,
@@ -448,7 +567,9 @@ function missionReport({crawler_name,data,master_ip,master_port,master_name,mast
             }
             finally{
                 if(err_flag==1){
-                    fin('err',err_msg);
+                    missMissionReport(temp_data,(stat)=>{
+                        fin('err',err_msg);
+                    });
                 }
                 else{
                     fin('ok',content);   
@@ -460,27 +581,52 @@ function missionReport({crawler_name,data,master_ip,master_port,master_name,mast
             if(err){
                 if(err.code.indexOf('TIME')!=-1||err.code.indexOf('ENOT')!=-1||err.code.indexOf('ECONN')!=-1||err.code.indexOf('REACH')!=-1){
                     cnt_retry++;
+                    if(cnt_retry>retry_limit){
+                        missMissionReport({access_token,mission_status,data,crawler_name},(stat)=>{
+                            writeLog('err','missionReport, retry over limit:'+cnt_retry);
+                            fin('err','missionReport, retry over limit:'+cnt_retry);
+                        });
+
+                        cnt_retry=0;
+                        return;
+                    }
+
                     console.log('Retry [missionReport]:'+err.code+' master_timeout_again:'+master_timeout_again+' cnt_retry:'+cnt_retry);
                     setTimeout(function(){
                         missionReport({data,master_ip,master_port,master_name,master_version,access_token,mission_status},fin);
                     },master_timeout_again*1000);
                 }
                 else{
-                    writeLog('err','missionReport, '+err);
-                    fin('err','missionReport, '+err);
+                    missMissionReport({access_token,mission_status,data,crawler_name},(stat)=>{
+                        writeLog('err','missionReport, '+err);
+                        fin('err','missionReport, '+err);
+                    });
+
                 }
             }
             else{
                 if(res.statusCode>=500&&res.statusCode<600){
                     cnt_retry++;
+                    if(cnt_retry>retry_limit){
+                        missMissionReport({access_token,mission_status,data,crawler_name},(stat)=>{
+                            writeLog('err','missionReport, retry over limit:'+cnt_retry);
+                            fin('err','missionReport, retry over limit:'+cnt_retry);
+                        });
+
+                        cnt_retry=0;
+                        return;
+                    }
                     console.log('Retry [missionReport]:'+res['statusCode']+' master_timeout_again:'+master_timeout_again+' cnt_retry:'+cnt_retry);
                     setTimeout(function(){
                         missionReport({data,master_ip,master_port,master_name,master_version,access_token,mission_status},fin);
                     },master_timeout_again*1000);
                 }
                 else{
-                    writeLog('err','missionReport, '+res['statusCode']+', '+body['err']);
-                    fin('err','missionReport, '+res['statusCode']+', '+body['err']);
+                    missMissionReport({access_token,mission_status,data,crawler_name},(stat)=>{
+                        writeLog('err','missionReport, '+res['statusCode']+', '+body['err']);
+                        fin('err','missionReport, '+res['statusCode']+', '+body['err']);
+                    });
+
                 }
             }
        }
@@ -1410,3 +1556,6 @@ exports.parseSharedpost=parseSharedpost;
 exports.parseReaction=parseReaction;
 exports.transGais=transGais;
 exports.updateFieldMap=updateFieldMap;
+exports.reImportData = reImportData;
+exports.reImportMission = reImportMission;
+
