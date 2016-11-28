@@ -9,8 +9,6 @@
 var track_tool = require('./tool/track_tool.js');
 var crawler = require('./crawler.js');
 
-var master = require('./master.js').master;
-var master_tool = require('./tool/master_tool.js');
 
 var CronJob = require('cron').CronJob;
 var EventEmitter = require('events');
@@ -518,7 +516,7 @@ else{
                             }
 
                         });
-                        track_tool.reImportData('data',mission['info']['master'],{datatype:mission['info']['datatype']},{center_ip:mission['info']['center_ip'],center_port:mission['info']['center_port'],center_url:mission['info']['center_url']},(flag,msg)=>{
+                        track_tool.reImportData('data',mission['info']['master'],mission['token']['access_token'],{datatype:mission['info']['datatype']},{center_ip:mission['info']['center_ip'],center_port:mission['info']['center_port'],center_url:mission['info']['center_url']},(flag,msg)=>{
                             if(flag=='ok'){
                                 console.log('[reImportData-data] ok:'+msg);
                                 track_tool.writeLog('process','[reImportData-data] ok:'+msg);
@@ -535,12 +533,13 @@ else{
 
                         var mission_status='done';
                         track_tool.reImportMission('missreport',{crawler_name,master_ip,master_port,master_name,master_version,access_token:mission['token']['access_token'],mission_status},(flag,msg)=>{
-                            if(flag=='ok'&&msg&&msg['data']&&msg['status']=='ok'){
+                            console.log('flag:'+flag+' msg:'+JSON.stringify(msg))
+                            if(flag=='ok'||(msg&&msg['data']&&msg['status']=='ok')){
                                 console.log('[reImportMission] ok:'+JSON.stringify(msg,null,2));
                             }
                             else{
-                                console.log('[reImportMission] err:'+JSON.stringify(msg));
-                                waitingStop('[reImportMission] err:'+msg);
+                                console.log('[reImportMission] err: '+JSON.stringify(msg));
+                                waitingStop('[reImportMission] err:'+JSON.stringify(msg));
                             }
                         });
                     }
@@ -614,7 +613,7 @@ else{
                                             }
 
                                         });
-                                        track_tool.reImportData('data',mission['info']['master'],{datatype:mission['info']['datatype']},{center_ip:mission['info']['center_ip'],center_port:mission['info']['center_port'],center_url:mission['info']['center_url']},(flag,msg)=>{
+                                        track_tool.reImportData('data',mission['info']['master'],mission['token']['access_token'],{datatype:mission['info']['datatype']},{center_ip:mission['info']['center_ip'],center_port:mission['info']['center_port'],center_url:mission['info']['center_url']},(flag,msg)=>{
                                             if(flag=='ok'){
                                                 console.log('[reImportData-data] ok:'+msg);
                                                 track_tool.writeLog('process','[reImportData-data] ok:'+msg);
@@ -628,14 +627,16 @@ else{
                                                 track_tool.writeLog('process','[reImportData-data] '+msg);
                                             }
                                         });
+
                                         var mission_status='done';
                                         track_tool.reImportMission('missreport',{crawler_name,master_ip,master_port,master_name,master_version,access_token:mission['token']['access_token'],mission_status},(flag,msg)=>{
-                                            if(flag=='ok'&&msg&&msg['data']&&msg['status']=='ok'){
+                                            console.log('flag:'+flag+' msg:'+JSON.stringify(msg))
+                                            if(flag=='ok'||(msg&&msg['data']&&msg['status']=='ok')){
                                                 console.log('[reImportMission] ok:'+JSON.stringify(msg,null,2));
                                             }
                                             else{
-                                                console.log('[reImportMission] err:'+JSON.stringify(msg));
-                                                waitingStop('[reImportMission] err:'+msg);
+                                                console.log('[reImportMission] err: '+JSON.stringify(msg));
+                                                waitingStop('[reImportMission] err:'+JSON.stringify(msg));
                                             }
                                         });
 

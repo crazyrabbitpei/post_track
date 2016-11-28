@@ -403,104 +403,119 @@ function listTrack({master_ip,master_port,master_name,master_version,access_toke
     });
 }
 //TODO:testing
-function reImportData(master_button,{datatype},{center_ip,center_port,center_url},fin){
+function reImportData(type,master_button,access_token,{datatype},{center_ip,center_port,center_url,center_name,center_version},fin){
     let filename;
     if(type=='data'){
         filename = crawler_setting['miss_data'];
 
     }
     else if(type=='mydata'){
-        filename = miss_data['miss_mydata'];
+        filename = crawler_setting['miss_mydata'];
     }
-
-    fs.readFile(crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/missData'+filename,(err,data)=>{
-        if(err){
-            fin('err',err);
-        }
-        else{
-            if(data==''){
-                fin('ok','');
-                return;
-            }
-            //備份上一次沒上傳成功的data
-            fs.writeFile(crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/last_missData'+filename,data,(err)=>{
+    fs.access(crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/missData'+filename,fs.constants.R_OK,(err)=>{
+        if(!err){
+            fs.readFile(crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/missData'+filename,(err,data)=>{
                 if(err){
-                    fin('err','Can\'t backup last miss data:'+rawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/last_missData'+filename);
+                    fin('err',err);
                 }
                 else{
-                    //因為都讀進memory裡，讀取成功後立即清空檔案，如此在重新上傳遇到失敗時，才不會有重複data在檔案裡
-                    fs.writeFile(crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/missData'+filename,'',(err)=>{
+                    if(data==''){
+                        fin('ok','');
+                        return;
+                    }
+                    //備份上一次沒上傳成功的data
+                    fs.writeFile(crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/last_missData'+filename,data,(err)=>{
                         if(err){
-                            fin('err','Can\'t clean :'+crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/missData'+filename);
+                            fin('err','Can\'t backup last miss data:'+rawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/last_missData'+filename);
                         }
                         else{
-                            if(type=='data'){
-                                uploadTrackPostData(master_button,{data,datatype},{center_ip,center_port,center_url},(flag,msg)=>{
-                                    fin(flag,msg);
-                                });
-                            }
-                            else if(type=='mydata'){
-                                my_uploadTrackPostData(master_button,access_token,{data,datatype},{center_ip,center_port,center_name,center_version},(flag,msg)=>{
-                                    fin(flag,msg);
-                                });
-                            }
-                        }
-                    });
-                }
-            });
-        }
-    });
-}
-//TODO:testing
-function reImportMission({crawler_name,master_ip,master_port,master_name,master_version,access_token,mission_status},fin){
-    fs.readFile(crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/missMissionReport'+crawler_setting['miss_missionreport_filename'],(err,data)=>{
-        if(err){
-            fin('err',err);
-        }
-        else{
-            if(data==''){
-                fin('ok','');
-                return;
-            }
-            
-            fs.writeFile(crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/last_missMissionReport'+crawler_setting['miss_missionreport_filename'],data,(err)=>{
-                if(err){
-                    fin('err','Can\'t backup last miss data:'+rawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/last_missMissionReport'+rawler_setting['miss_missionreport_filename']);
-
-                }
-                else{
-                    //因為都讀進memory裡，讀取成功後立即清空檔案，如此在重新上傳遇到失敗時，才不會有重複data在檔案裡
-                    fs.writeFile(crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/missMissionReport'+crawler_setting['miss_missionreport_filename'],'',(err)=>{
-                        if(err){
-                            fin('err','Can\'t clean :'+crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/missMissionReport'+crawler_setting['miss_missionreport_filename']);
-                        }
-                        else{
-                            var err_msg='',err_flag=0;
-                            var result;
-                            try{
-                                result = JSON.stringify(data);
-                            }
-                            catch(e){
-                                err_flag=1;
-                                err_msg=e;
-                            }
-                            finally{
-                                if(err_flag){
-                                    fin('err',e);
+                            //因為都讀進memory裡，讀取成功後立即清空檔案，如此在重新上傳遇到失敗時，才不會有重複data在檔案裡
+                            fs.writeFile(crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/missData'+filename,'',(err)=>{
+                                if(err){
+                                    fin('err','Can\'t clean :'+crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/missData'+filename);
                                 }
                                 else{
-                                    missionReport({crawler_name,data,master_ip,master_port,master_name,master_version,access_token,mission_status},(flag,msg)=>{
-                                        fin(flag,msg);
-                                    });
+                                    if(type=='data'){
+                                        uploadTrackPostData(master_button,{data,datatype},{center_ip,center_port,center_url},(flag,msg)=>{
+                                            fin(flag,msg);
+                                        });
+                                    }
+                                    else if(type=='mydata'){
+                                        my_uploadTrackPostData(master_button,access_token,{data,datatype},{center_ip,center_port,center_name,center_version},(flag,msg)=>{
+                                            fin(flag,msg);
+                                        });
+                                    }
                                 }
-                            }
-
+                            });
                         }
                     });
                 }
             });
         }
-    });
+        else{
+            fin('ok','No miss data');
+        }
+    })
+
+}
+//TODO:testing
+function reImportMission(type,{crawler_name,master_ip,master_port,master_name,master_version,access_token,mission_status},fin){
+    fs.access(crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/missMissionReport'+crawler_setting['miss_missionreport_filename'],fs.constants.R_OK,(err)=>{
+        if(!err){
+            fs.readFile(crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/missMissionReport'+crawler_setting['miss_missionreport_filename'],(err,data)=>{
+                if(err){
+                    fin('err',err);
+                }
+                else{
+                    if(data==''){
+                        fin('ok','');
+                        return;
+                    }
+
+                    fs.writeFile(crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/last_missMissionReport'+crawler_setting['miss_missionreport_filename'],data,(err)=>{
+                        if(err){
+                            fin('err','Can\'t backup last miss data:'+rawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/last_missMissionReport'+rawler_setting['miss_missionreport_filename']);
+
+                        }
+                        else{
+                            //因為都讀進memory裡，讀取成功後立即清空檔案，如此在重新上傳遇到失敗時，才不會有重複data在檔案裡
+                            fs.writeFile(crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/missMissionReport'+crawler_setting['miss_missionreport_filename'],'',(err)=>{
+                                if(err){
+                                    fin('err','Can\'t clean :'+crawler_setting['rec_dir']+'/'+crawler_setting['miss_dir']+'/missMissionReport'+crawler_setting['miss_missionreport_filename']);
+                                }
+                                else{
+                                    var err_msg='',err_flag=0;
+                                    var result;
+                                    try{
+                                        result = JSON.stringify(data);
+                                    }
+                                    catch(e){
+                                        err_flag=1;
+                                        err_msg=e;
+                                    }
+                                    finally{
+                                        if(err_flag){
+                                            fin('err',err_msg);
+                                        }
+                                        else{
+                                            missionReport({crawler_name,data,master_ip,master_port,master_name,master_version,access_token,mission_status},(flag,msg)=>{
+                                                fin(flag,msg);
+                                            });
+                                        }
+                                    }
+
+                                }
+                            });
+                        }
+                    });
+                }
+            });
+        }
+        else{
+            fin('ok','No miss mission report');
+        }
+    })
+
 }
 //TODO:testing
 function missData(data,type,fin){
